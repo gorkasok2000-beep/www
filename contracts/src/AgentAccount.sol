@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {SimpleAccount} from "@account-abstraction/contracts/accounts/SimpleAccount.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+import {SIG_VALIDATION_FAILED} from "@account-abstraction/contracts/core/Helpers.sol";
+import {Exec} from "@account-abstraction/contracts/utils/Exec.sol";
+
+import {AgentMode, modeOf} from "./lib/AgentTypes.sol";
+import {SpendingRules} from "./lib/SpendingRules.sol";
+
+/**
+ * @title AgentAccount
+ * @notice ERC-4337 кошелёк, владельцем которого выступает ИИ-агент.
+ *
+ * @dev Это расширение канонического `SimpleAccount` из eth-infinitism/account-abstraction
+ *      (v0.9.0), а не собственная реализация ERC-4337. Из референса без изменений берутся
+ *      валидация подписи, работа с EntryPoint, депозит на газ и UUPS-апгрейд. Сверху
+ *      добавлено ровно четыре вещи, требуемые ТЗ:
+ *
+ *      1. Два сценария владения (см. `AgentTypes.sol`) — через наличие кастодиана.
+ *      2. Опциональные правила трат (лимит + whitelist) — только для Human Custodian.
+ *      3. Публичный лог транзакций — событие `AgentTransaction` на каждую исходящую трату.
+ *      4. Обратимая административная заморозка, управляемая реестром.
+ *
+ *      Оба сценария из ТЗ используют этот же контракт: у Autonomous Entity кастодиан
+ *      равен address(0), и правила для него недоступны на уровне контракта, а не только UI.
+ */
+contract AgentAccount is SimpleAccount {
+    using SpendingRules for SpendingRules.Config;
+
+    /// @notice Кастодиан-человек; address(0) => режим Autonomous Entity.
+    address public custodian;
+
+    /// @notice Реестр агентов — единственный, кто может замораживать этот кошелёк.
+    address public registry;
+
+    /// @notice Заморожен ли кошелёк (обратимо, на случай мошенничества или бага).
+    bool public frozen;
+
+    /// @notice Правила трат. Всегда пустые в режиме Autonomous Entity.
+    SpendingRules.Config public rules;
+
+    /// @notice Разрешённые получатели, если `rules.whitelistEnabled`.
+    mapping(address => bool) public whitelisted;
+
+    SpendingRules.Window private _window;
+
+    /**
+     * @notice Публичный лог трат: кто, куда, сколько, когда.
+     * @dev `account` дублирует адрес эмитента события — так индексатору витрины не нужно
+     *      знать список кошельков заранее, достаточно фильтра по одной теме.
+     */
+    event AgentTransaction(
+        address indexed account, address indexed to, uint256 value, bytes4 selector, uint256 timestamp
+    );
+
+    event AgentAccountInitialized(address indexed owner, address indexed custodian, AgentMode mode);
+    event RulesUpdated(uint128 limitWei, uint64 periodSeconds, bool whitelistEnabled);
+    event WhitelistUpdated(address indexed target, bool allowed);
+    event FrozenSet(bool frozen);
+
+    error UseInitializeAgent();
+    error NotCustodian(address msgSender, address custodian);
+    error NotRegistry(address msgSender, address registry);
+    error RulesRequireCustodian();
+    error AccountFrozen();
+    error RecipientNotWhitelisted(address target);
+
+    constructor(IEntryPoint anEntryPoint) SimpleAccount(anEntryPoint) {}
+
+    modifier onlyCustodian() {
+        _onlyCustodian();
+        _;
+    }
+
+    function _onlyCustodian() internal view {
+        address custodian_ = custodian;
+        // В режиме Autonomous Entity кастодиана нет — значит и правил быть не может.
+        require(custodian_ != address(0), RulesRequireCustodian());
+        require(msg.sender == custodian_, NotCustodian(msg.sender, custodian_));
+    }
+
+    // ---------------------------------------------------------------------
+    // Инициализация
+    // ---------------------------------------------------------------------
+
+    /**
+     * @notice Инициализатор `SimpleAccount` отключён: кошелёк агента нельзя создать
+     *         без указания режима и реестра.
+     */
+    function initialize(address) public pure override {
+        revert UseInitializeAgent();
+    }
+
+    /**
+     * @notice Создаёт кошелёк агента.
+     * @param anOwner          ключ, которым агент подписывает UserOperation
+     * @param aCustodian       кастодиан-человек или address(0) для Autonomous Entity
+     * @param aRegistry        реестр, которому разрешена заморозка
+     * @param initialRules     стартовые правила; должны быть пустыми без кастодиана
+     * @param initialWhitelist стартовый whitelist; должен быть пустым без кастодиана
+     */
+    function initializeAgent(
+        address anOwner,
+        address aCustodian,
+        address aRegistry,
+        SpendingRules.Config calldata initialRules,
+        address[] calldata initialWhitelist
+    ) public virtual initializer {
+        _initialize(anOwner);
+
+        custodian = aCustodian;
+        registry = aRegistry;
+
+        if (aCustodian == address(0)) {
+            // Autonomous Entity: никаких правил, «мы не спрашиваем документы».
+            require(
+                initialRules.limitWei == 0 && initialRules.periodSeconds == 0
+                    && !initialRules.whitelistEnabled && initialWhitelist.length == 0,
+                RulesRequireCustodian()
+            );
+        } else {
+            rules = initialRules;
+            for (uint256 i = 0; i < initialWhitelist.length; i++) {
+                whitelisted[initialWhitelist[i]] = true;
+                emit WhitelistUpdated(initialWhitelist[i], true);
+            }
+            emit RulesUpdated(
+                initialRules.limitWei, initialRules.periodSeconds, initialRules.whitelistEnabled
+            );
+        }
+
+        emit AgentAccountInitialized(anOwner, aCustodian, modeOf(aCustodian));
+    }
+
+    // ---------------------------------------------------------------------
+    // Исполнение (переопределяет BaseAccount)
+    // ---------------------------------------------------------------------
+
+    /// @notice Исполнить одиночный вызов от имени агента.
+    /// @dev Копия базовой реализации `BaseAccount` плюс проверка правил и запись в публичный лог.
+    function execute(address target, uint256 value, bytes calldata data) external override {
+        _requireForExecute();
+        _authorizeSpend(target, value);
+
+        bool ok = Exec.call(target, value, data, gasleft());
+        if (!ok) {
+            Exec.revertWithReturnData();
+        }
+
+        _logTransaction(target, value, data);
+    }
+
+    /// @notice Исполнить пачку вызовов от имени агента.
+    /// @dev Правила применяются к каждому вызову батча по отдельности, лимит расходуется
+    ///      накопительно — иначе батч был бы способом обойти ограничение.
+    function executeBatch(Call[] calldata calls) external override {
+        _requireForExecute();
+
+        uint256 callsLength = calls.length;
+        for (uint256 i = 0; i < callsLength; i++) {
+            Call calldata call = calls[i];
+            _authorizeSpend(call.target, call.value);
+
+            bool ok = Exec.call(call.target, call.value, call.data, gasleft());
+            if (!ok) {
+                if (callsLength == 1) {
+                    Exec.revertWithReturnData();
+                } else {
+                    revert ExecuteError(i, Exec.getReturnData(0));
+                }
+            }
+
+            _logTransaction(call.target, call.value, call.data);
+        }
+    }
+
+    /**
+     * @dev Проверка заморозки на фазе валидации. Читается только собственный storage
+     *      аккаунта, поэтому правила ERC-7562 не нарушаются и операция корректно
+     *      отбраковывается настоящим бандлером ещё до попадания в блок.
+     */
+    function _validateSignature(PackedUserOperation calldata userOp, bytes32 userOpHash)
+        internal
+        virtual
+        override
+        returns (uint256 validationData)
+    {
+        if (frozen) {
+            return SIG_VALIDATION_FAILED;
+        }
+        return super._validateSignature(userOp, userOpHash);
+    }
+
+    function _authorizeSpend(address target, uint256 value) internal {
+        require(!frozen, AccountFrozen());
+
+        // Правила существуют только в режиме Human Custodian — в Autonomous они пустые.
+        if (rules.whitelistEnabled) {
+            require(whitelisted[target], RecipientNotWhitelisted(target));
+        }
+        rules.consume(_window, value);
+    }
+
+    function _logTransaction(address target, uint256 value, bytes calldata data) internal {
+        // Обрезка до 4 байт намеренная: в лог пишется селектор вызванного метода,
+        // а для простого перевода ETH (пустой calldata) — нулевой селектор.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        bytes4 selector = data.length >= 4 ? bytes4(data) : bytes4(0);
+        emit AgentTransaction(address(this), target, value, selector, block.timestamp);
+    }
+
+    // ---------------------------------------------------------------------
+    // Управление правилами (кастодиан)
+    // ---------------------------------------------------------------------
+
+    function setRules(SpendingRules.Config calldata newRules) external onlyCustodian {
+        rules = newRules;
+        emit RulesUpdated(newRules.limitWei, newRules.periodSeconds, newRules.whitelistEnabled);
+    }
+
+    function setWhitelisted(address target, bool allowed) external onlyCustodian {
+        whitelisted[target] = allowed;
+        emit WhitelistUpdated(target, allowed);
+    }
+
+    function setWhitelistedBatch(address[] calldata targets, bool allowed) external onlyCustodian {
+        for (uint256 i = 0; i < targets.length; i++) {
+            whitelisted[targets[i]] = allowed;
+            emit WhitelistUpdated(targets[i], allowed);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Администрирование (реестр)
+    // ---------------------------------------------------------------------
+
+    /// @notice Обратимая заморозка. Вызывается только реестром.
+    function setFrozen(bool value) external {
+        address registry_ = registry;
+        require(msg.sender == registry_, NotRegistry(msg.sender, registry_));
+        frozen = value;
+        emit FrozenSet(value);
+    }
+
+    // ---------------------------------------------------------------------
+    // Вьюхи для дашборда
+    // ---------------------------------------------------------------------
+
+    function mode() external view returns (AgentMode) {
+        return modeOf(custodian);
+    }
+
+    /// @notice Остаток лимита в текущем окне; type(uint256).max, если лимита нет.
+    function spendingRemaining() external view returns (uint256) {
+        return rules.remaining(_window);
+    }
+
+    /// @notice Состояние текущего окна расходов (для отображения прогресса).
+    function spendingWindow() external view returns (uint64 startedAt, uint128 spentWei) {
+        return (_window.startedAt, _window.spentWei);
+    }
+}
