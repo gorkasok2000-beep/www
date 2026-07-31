@@ -1,0 +1,54 @@
+/*
+ * Дополнения к скомпилированному бандлу Tailwind.
+ *
+ * Приложение работает в принудительно тёмной теме (forcedTheme="dark" в
+ * apps/web/src/app/layout.tsx), поэтому демо тоже фиксирует одну тему: токены из
+ * блока .dark поднимаются на :root, а переключатель темы просмотрщика не должен
+ * их перебивать — отсюда явные правила для обоих значений data-theme.
+ */
+
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"] {
+  color-scheme: dark;
+  background-color: var(--background, #0a0a0a);
+}
+
+/* Значение из блока .dark бандла. На body его нельзя взять через var(--background):
+   body лежит выше #app, и там ещё действуют светлые токены из :root. */
+html,
+body {
+  background-color: #0a0a0a;
+  color: #fafafa;
+}
+
+/* Класс dark на обёртке включает и токены, и dark:-варианты Tailwind
+   (@custom-variant dark (&:is(.dark *))). Здесь же задаём фон страницы: внутри
+   элемента с классом .dark переменные уже разрешаются в тёмные значения, поэтому
+   секции без собственного фона больше не просвечивают светлым. */
+#app {
+  min-height: 100vh;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Демо не отключает анимации целиком, но уважает системную настройку. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Видимый фокус для клавиатуры — в бандле он завязан на focus-visible утилиты,
+   но у ссылок-кнопок демо их нет. */
+a:focus-visible,
+button:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--ring, #8a8a8a);
+  outline-offset: 2px;
+}
