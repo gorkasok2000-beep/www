@@ -7,17 +7,25 @@
 /*
  * Дополнения к скомпилированному бандлу Tailwind.
  *
- * Приложение работает в принудительно тёмной теме (forcedTheme="dark" в
- * apps/web/src/app/layout.tsx), поэтому демо тоже фиксирует одну тему: токены из
- * блока .dark поднимаются на :root, а переключатель темы просмотрщика не должен
- * их перебивать — отсюда явные правила для обоих значений data-theme.
+ * Бандл собран из того, что использовало приложение, поэтому утилиты, нужные только
+ * демо, приходится дописывать руками — иначе класс есть, а стиля за ним нет.
+ * Список расхождений даёт `node demo/check-classes.mjs`.
  */
 
+/* --------------------------------------------------------------------------
+   Тема
+   -------------------------------------------------------------------------- */
+
+/*
+ * Приложение работает в принудительно тёмной теме (forcedTheme="dark" в
+ * apps/web/src/app/layout.tsx), поэтому демо тоже фиксирует одну тему, а
+ * переключатель темы просмотрщика не должен её перебивать.
+ */
 :root,
 :root[data-theme="dark"],
 :root[data-theme="light"] {
   color-scheme: dark;
-  background-color: var(--background, #0a0a0a);
+  background-color: #0a0a0a;
 }
 
 /* Значение из блока .dark бандла. На body его нельзя взять через var(--background):
@@ -28,17 +36,224 @@ body {
   color: #fafafa;
 }
 
-/* Класс dark на обёртке включает и токены, и dark:-варианты Tailwind
-   (@custom-variant dark (&:is(.dark *))). Здесь же задаём фон страницы: внутри
-   элемента с классом .dark переменные уже разрешаются в тёмные значения, поэтому
-   секции без собственного фона больше не просвечивают светлым. */
+/* Внутри элемента с классом .dark переменные уже разрешаются в тёмные значения. */
 #app {
   min-height: 100vh;
   background-color: var(--background);
   color: var(--foreground);
 }
 
-/* Демо не отключает анимации целиком, но уважает системную настройку. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* --------------------------------------------------------------------------
+   Утилиты, которых нет в бандле приложения
+   -------------------------------------------------------------------------- */
+
+.sticky {
+  position: sticky;
+}
+
+.mb-10 {
+  margin-bottom: calc(var(--spacing) * 10);
+}
+
+.text-\[11px\] {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* Отступ под липкой шапкой, чтобы якорь не уезжал под неё. */
+.scroll-mt-28 {
+  scroll-margin-top: calc(var(--spacing) * 28);
+}
+
+.h-screen {
+  height: 100vh;
+}
+
+.w-24 {
+  width: calc(var(--spacing) * 24);
+}
+
+.w-40 {
+  width: calc(var(--spacing) * 40);
+}
+
+.w-64 {
+  width: calc(var(--spacing) * 64);
+}
+
+.size-12 {
+  width: calc(var(--spacing) * 12);
+  height: calc(var(--spacing) * 12);
+}
+
+.py-2\.5 {
+  padding-block: calc(var(--spacing) * 2.5);
+}
+
+.pb-24 {
+  padding-bottom: calc(var(--spacing) * 24);
+}
+
+.inset-x-4 {
+  inset-inline: calc(var(--spacing) * 4);
+}
+
+.bg-background\/95 {
+  background-color: color-mix(in oklab, var(--background) 95%, transparent);
+}
+
+.hover\:bg-sidebar-accent\/60:hover {
+  background-color: color-mix(in oklab, var(--sidebar-accent) 60%, transparent);
+}
+
+.hover\:bg-muted\/20:hover {
+  background-color: color-mix(in oklab, var(--muted) 20%, transparent);
+}
+
+.underline {
+  text-decoration-line: underline;
+}
+
+/* Активный пункт бокового меню: токены есть, а утилит под них в бандле нет —
+   приложение красит сайдбар собственным компонентом. */
+.bg-sidebar-accent {
+  background-color: var(--sidebar-accent);
+}
+
+.text-sidebar-accent-foreground {
+  color: var(--sidebar-accent-foreground);
+}
+
+/* Тот же приём, что в бандле: отступ вешается на всех детей, кроме последнего. */
+:where(.space-y-1 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(var(--spacing) * var(--tw-space-y-reverse));
+  margin-block-end: calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)));
+}
+
+:where(.space-y-5 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));
+  margin-block-end: calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)));
+}
+
+@media (width >= 40rem) {
+  .sm\:block {
+    display: block;
+  }
+}
+
+@media (width >= 48rem) {
+  .md\:hidden {
+    display: none;
+  }
+
+  .md\:pb-24 {
+    padding-bottom: calc(var(--spacing) * 24);
+  }
+}
+
+/* Раскладка кабинета: сайдбар от lg и «плавающая» рабочая область рядом с ним.
+   Ни одного из этих классов в бандле приложения нет — оно верстает сайдбар
+   собственным компонентом. */
+@media (width >= 64rem) {
+  .lg\:flex {
+    display: flex;
+  }
+
+  .lg\:hidden {
+    display: none;
+  }
+
+  .lg\:my-2 {
+    margin-block: calc(var(--spacing) * 2);
+  }
+
+  .lg\:mr-2 {
+    margin-right: calc(var(--spacing) * 2);
+  }
+
+  .lg\:rounded-xl {
+    border-radius: calc(var(--radius) * 1.4);
+  }
+
+  .lg\:shadow-sm {
+    box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Движение
+   -------------------------------------------------------------------------- */
+
+@keyframes sw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: sw-spin 0.8s linear infinite;
+}
+
+@keyframes sw-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes sw-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sw-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/*
+ * Появление страницы включается только при смене маршрута (см. router.js):
+ * если анимировать каждый рендер, список транзакций будет дёргаться после
+ * каждого платежа.
+ */
+.sw-page {
+  animation: sw-page-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-page .sw-item {
+  animation: sw-item-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-fade {
+  animation: sw-fade-in 0.2s ease-out both;
+}
+
+/* Полоса лимита не должна прыгать: ширина едет, а не переставляется. */
+.sw-bar {
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Доступность
+   -------------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible,
+textarea:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--ring, #8a8a8a);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -48,22 +263,17 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
 
-/* Видимый фокус для клавиатуры — в бандле он завязан на focus-visible утилиты,
-   но у ссылок-кнопок демо их нет. */
-a:focus-visible,
-button:focus-visible,
-[role="switch"]:focus-visible {
-  outline: 2px solid var(--ring, #8a8a8a);
-  outline-offset: 2px;
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 </style>
 
 <!--
   Демонстрационная сборка прототипа Synth Wallet.
-  Сгенерировано demo/build.mjs — редактировать надо demo/app.js, а не этот файл.
+  Сгенерировано demo/build.mjs — редактировать надо demo/src/*.js, а не этот файл.
 -->
 <div id="app" class="dark"></div>
 
@@ -114,1563 +324,2742 @@ button:focus-visible,
   "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"></rect><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"></path>",
   "snowflake": "<path d=\"m10 20-1.25-2.5L6 18\"></path><path d=\"M10 4 8.75 6.5 6 6\"></path><path d=\"m14 20 1.25-2.5L18 18\"></path><path d=\"m14 4 1.25 2.5L18 6\"></path><path d=\"m17 21-3-6h-4\"></path><path d=\"m17 3-3 6 1.5 3\"></path><path d=\"M2 12h6.5L10 9\"></path><path d=\"m20 10-1.5 2 1.5 2\"></path><path d=\"M22 12h-6.5L14 15\"></path><path d=\"m4 10 1.5 2L4 14\"></path><path d=\"m7 21 3-6-1.5-3\"></path><path d=\"m7 3 3 6h4\"></path>",
   "triangle-alert": "<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"></path><path d=\"M12 9v4\"></path><path d=\"M12 17h.01\"></path>",
-  "check": "<path d=\"M20 6 9 17l-5-5\"></path>"
+  "check": "<path d=\"M20 6 9 17l-5-5\"></path>",
+  "download": "<path d=\"M12 15V3\"></path><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"></path><path d=\"m7 10 5 5 5-5\"></path>",
+  "log-out": "<path d=\"m16 17 5-5-5-5\"></path><path d=\"M21 12H9\"></path><path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\"></path>",
+  "ban": "<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M4.929 4.929 19.07 19.071\"></path>",
+  "search": "<path d=\"m21 21-4.34-4.34\"></path><circle cx=\"11\" cy=\"11\" r=\"8\"></circle>",
+  "rotate-ccw": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"></path><path d=\"M3 3v5h5\"></path>",
+  "shield-alert": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"></path><path d=\"M12 8v4\"></path><path d=\"M12 16h.01\"></path>"
  }
 };</script>
 <script>
-/**
- * Synth Wallet — демонстрационная сборка для просмотра в браузере.
- *
- * Это НЕ приложение из apps/web. Здесь нет ни блокчейна, ни бэкенда, ни базы:
- * весь стейт живёт в памяти вкладки и исчезает при перезагрузке. Задача файла —
- * дать посмотреть дизайн и пройти флоу с телефона, не поднимая стенд.
- *
- * Что перенесено из настоящего приложения без изменений:
- *   - классы Tailwind и разметка компонентов (сняты с работающей сборки, см. build.mjs);
- *   - хелперы форматирования из apps/web/src/lib/format.ts;
- *   - логика правил трат из contracts/src/lib/SpendingRules.sol
- *     и AgentAccount._authorizeSpend;
- *   - тексты отказов из apps/web/src/lib/chain/errors.ts.
- */
 (function () {
-  "use strict";
+"use strict";
+// ==== src/00-format.js ====
+// ---------------------------------------------------------------------
+// Форматирование — перенос apps/web/src/lib/format.ts
+// ---------------------------------------------------------------------
 
-  const T = window.__SYNTH_TOKENS__;
+const T = window.__SYNTH_TOKENS__;
 
-  // ---------------------------------------------------------------------
-  // Форматирование — перенос apps/web/src/lib/format.ts
-  // ---------------------------------------------------------------------
+/** Ошибка, которую показываем пользователю как есть. */
+class DemoError extends Error {}
 
-  const WEI = 1000000000000000000n;
+const WEI = 1000000000000000000n;
 
-  function formatEth(wei, digits = 4) {
-    const value = typeof wei === "bigint" ? wei : BigInt(wei);
-    const eth = Number(value) / 1e18;
-    if (eth === 0) return "0";
-    if (eth < 0.0001) return "<0.0001";
-    return eth.toFixed(digits).replace(/\.?0+$/, "");
+function formatEth(wei, digits = 4) {
+  const value = typeof wei === "bigint" ? wei : BigInt(wei);
+  const eth = Number(value) / 1e18;
+  if (eth === 0) return "0";
+  if (eth < 0.0001) return "<0.0001";
+  return eth.toFixed(digits).replace(/\.?0+$/, "");
+}
+
+/** Разбор строки «0.05» в wei без потери точности на дробной части. */
+function parseEth(input) {
+  const text = String(input).trim().replace(",", ".");
+  if (!/^\d*\.?\d*$/.test(text) || text === "" || text === ".") {
+    throw new DemoError("Введите сумму числом, например 0.05.");
   }
+  const [whole, fraction = ""] = text.split(".");
+  const padded = (fraction + "000000000000000000").slice(0, 18);
+  return BigInt(whole || "0") * WEI + BigInt(padded || "0");
+}
 
-  /** Разбор строки «0.05» в wei без потери точности на дробной части. */
-  function parseEth(input) {
-    const text = String(input).trim().replace(",", ".");
-    if (!/^\d*\.?\d*$/.test(text) || text === "" || text === ".") {
-      throw new DemoError("Введите сумму числом, например 0.05.");
+const shortAddress = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+const MODE_LABEL = {
+  HUMAN_CUSTODIAN: "Human Custodian",
+  AUTONOMOUS_ENTITY: "Autonomous Entity",
+};
+
+function formatPeriod(seconds) {
+  if (seconds === 0) return "за транзакцию";
+  if (seconds % 86400 === 0) return `за ${seconds / 86400} сут.`;
+  if (seconds % 3600 === 0) return `за ${seconds / 3600} ч`;
+  if (seconds % 60 === 0) return `за ${seconds / 60} мин`;
+  return `за ${seconds} с`;
+}
+
+function plural(count, one, few, many) {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return `${count} ${many}`;
+  if (mod10 === 1) return `${count} ${one}`;
+  if (mod10 >= 2 && mod10 <= 4) return `${count} ${few}`;
+  return `${count} ${many}`;
+}
+
+function timeAgo(value) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "только что";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} мин назад`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} ч назад`;
+  return `${Math.floor(seconds / 86400)} сут. назад`;
+}
+
+const esc = (value) =>
+  String(value).replace(/[&<>"']/g, (c) =>
+    ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c],
+  );
+
+const randomHex = (bytes) => {
+  const buffer = new Uint8Array(bytes);
+  crypto.getRandomValues(buffer);
+  return [...buffer].map((b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+const randomAddress = () => "0x" + randomHex(20);
+const randomTxHash = () => "0x" + randomHex(32);
+const minutesAgo = (m) => new Date(Date.now() - m * 60000);
+
+const isAddress = (value) => /^0x[0-9a-fA-F]{40}$/.test(String(value).trim());
+
+
+// ==== src/10-crypto.js ====
+// ---------------------------------------------------------------------
+// Ключи доступа: keystore вместо логина и пароля
+// ---------------------------------------------------------------------
+
+/**
+ * Вход в кабинет устроен как в кошельках Ethereum, а не как в обычных сервисах:
+ * аккаунта на сервере нет, есть приватный ключ агента. Ключ шифруется парольной
+ * фразой и лежит у владельца — в браузере и в скачанном файле keystore.
+ *
+ * Шифрование настоящее: PBKDF2-SHA256 + AES-256-GCM через WebCrypto. Неверная
+ * парольная фраза заваливает проверку тега аутентификации, поэтому «подобрать»
+ * ответ невозможно даже имея файл. Парольная фраза никуда не сохраняется.
+ */
+
+const KDF_ITERATIONS = 210000;
+
+/** WebCrypto доступен только в защищённом контексте — молча притворяться нельзя. */
+function requireSubtle() {
+  if (!globalThis.crypto?.subtle) {
+    throw new DemoError(
+      "Браузер не даёт доступ к WebCrypto в этом окружении, зашифровать ключ невозможно. " +
+        "Откройте страницу по https.",
+    );
+  }
+  return crypto.subtle;
+}
+
+const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+async function deriveKey(passphrase, salt) {
+  const subtle = requireSubtle();
+  const material = await subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+
+  return subtle.deriveKey(
+    {name: "PBKDF2", salt, iterations: KDF_ITERATIONS, hash: "SHA-256"},
+    material,
+    {name: "AES-GCM", length: 256},
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+/** Шифрует секрет агента парольной фразой и возвращает keystore-объект. */
+async function createKeystore(secret, passphrase, meta) {
+  const subtle = requireSubtle();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(passphrase, salt);
+  const ciphertext = await subtle.encrypt({name: "AES-GCM", iv}, key, secret);
+
+  return {
+    version: 1,
+    kdf: `pbkdf2-sha256:${KDF_ITERATIONS}`,
+    cipher: "aes-256-gcm",
+    handle: meta.handle,
+    mode: meta.mode,
+    address: meta.address,
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    ciphertext: toBase64(new Uint8Array(ciphertext)),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/** Расшифровывает keystore. Неверная фраза — исключение, а не пустой результат. */
+async function openKeystore(keystore, passphrase) {
+  const subtle = requireSubtle();
+  const key = await deriveKey(passphrase, fromBase64(keystore.salt));
+
+  try {
+    const plain = await subtle.decrypt(
+      {name: "AES-GCM", iv: fromBase64(keystore.iv)},
+      key,
+      fromBase64(keystore.ciphertext),
+    );
+    return new Uint8Array(plain);
+  } catch {
+    throw new DemoError("Не удалось расшифровать ключ: неверная парольная фраза.");
+  }
+}
+
+// ---------------------------------------------------------------------
+// Access Key — тот же секрет в виде, который можно записать на бумаге
+// ---------------------------------------------------------------------
+
+/** Алфавит Крокфорда: без I, L, O и U, чтобы не путать при переписывании. */
+const BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function encodeAccessKey(secret) {
+  let bits = 0;
+  let value = 0;
+  let out = "";
+
+  for (const byte of secret) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
     }
-    const [whole, fraction = ""] = text.split(".");
-    const padded = (fraction + "000000000000000000").slice(0, 18);
-    return BigInt(whole || "0") * WEI + BigInt(padded || "0");
+  }
+  if (bits > 0) {
+    out += BASE32[(value << (5 - bits)) & 31];
   }
 
-  const shortAddress = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+  return "SYNTH-" + (out.match(/.{1,5}/g) || []).join("-");
+}
 
-  const MODE_LABEL = {
-    HUMAN_CUSTODIAN: "Human Custodian",
-    AUTONOMOUS_ENTITY: "Autonomous Entity",
-  };
+function decodeAccessKey(text) {
+  const cleaned = String(text)
+    .toUpperCase()
+    .replace(/^SYNTH-/, "")
+    .replace(/[^0-9A-Z]/g, "")
+    .replace(/[ILO]/g, (c) => ({I: "1", L: "1", O: "0"})[c]);
 
-  function formatPeriod(seconds) {
-    if (seconds === 0) return "за транзакцию";
-    if (seconds % 86400 === 0) return `за ${seconds / 86400} сут.`;
-    if (seconds % 3600 === 0) return `за ${seconds / 3600} ч`;
-    if (seconds % 60 === 0) return `за ${seconds / 60} мин`;
-    return `за ${seconds} с`;
-  }
+  let bits = 0;
+  let value = 0;
+  const out = [];
 
-  function plural(count, one, few, many) {
-    const mod100 = count % 100;
-    const mod10 = count % 10;
-    if (mod100 >= 11 && mod100 <= 14) return `${count} ${many}`;
-    if (mod10 === 1) return `${count} ${one}`;
-    if (mod10 >= 2 && mod10 <= 4) return `${count} ${few}`;
-    return `${count} ${many}`;
-  }
-
-  function timeAgo(value) {
-    const date = typeof value === "string" ? new Date(value) : value;
-    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-    if (seconds < 60) return "только что";
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} мин назад`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)} ч назад`;
-    return `${Math.floor(seconds / 86400)} сут. назад`;
-  }
-
-  const esc = (value) =>
-    String(value).replace(/[&<>"']/g, (c) =>
-      ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c],
-    );
-
-  // ---------------------------------------------------------------------
-  // Примитивы: те же классы, что в apps/web/src/components/ui
-  // ---------------------------------------------------------------------
-
-  const icon = (name, cls = "size-4") =>
-    `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" ` +
-    `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
-    `stroke-linejoin="round" class="lucide lucide-${name} ${cls}" aria-hidden="true">` +
-    `${T.icons[name] || ""}</svg>`;
-
-  const card = (inner, extra = "") =>
-    `<div data-slot="card" data-size="default" class="${T.card} ${extra}">${inner}</div>`;
-  const cardHeader = (inner, extra = "") =>
-    `<div data-slot="card-header" class="${T.cardHeader} ${extra}">${inner}</div>`;
-  const cardTitle = (inner, extra = "") =>
-    `<div data-slot="card-title" class="${T.cardTitle} ${extra}">${inner}</div>`;
-  const cardContent = (inner, extra = "") =>
-    `<div data-slot="card-content" class="${T.cardContent} ${extra}">${inner}</div>`;
-
-  const badge = (text, variant = "secondary", extra = "") => {
-    const cls = {
-      secondary: T.badge,
-      outline: T.badgeOutline,
-      destructive: T.badgeDestructive,
-    }[variant];
-    return `<span data-slot="badge" data-variant="${variant}" class="${cls} ${extra}">${text}</span>`;
-  };
-
-  /** @param {{variant?:string,size?:string,act?:string,extra?:string,disabled?:boolean,href?:string}} o */
-  const button = (label, o = {}) => {
-    const variant = o.variant || "default";
-    const size = o.size || "md";
-    const key = "btn" + variant[0].toUpperCase() + variant.slice(1) + {lg: "Lg", md: "Md", sm: "Sm"}[size];
-    const cls = `${T[key]} ${o.extra || ""}`;
-    if (o.href) {
-      return `<a href="${o.href}" data-slot="button" class="${cls}">${label}</a>`;
+  for (const char of cleaned) {
+    const index = BASE32.indexOf(char);
+    if (index < 0) {
+      throw new DemoError("В ключе доступа есть символы, которых в нём быть не может.");
     }
-    return (
-      `<button type="button" data-slot="button" class="${cls}"` +
-      `${o.act ? ` data-act="${o.act}"` : ""}${o.disabled ? " disabled" : ""}>${label}</button>`
+    value = (value << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+
+  if (out.length !== 32) {
+    throw new DemoError("Ключ доступа неполный: ожидается 52 символа после префикса SYNTH.");
+  }
+  return new Uint8Array(out);
+}
+
+/**
+ * Адрес кошелька выводится из секрета детерминированно, поэтому один и тот же
+ * ключ всегда открывает один и тот же кошелёк — как и в настоящем кошельке,
+ * где адрес получается из приватного ключа.
+ */
+async function addressFromSecret(secret) {
+  const digest = await requireSubtle().digest("SHA-256", secret);
+  const bytes = new Uint8Array(digest).slice(0, 20);
+  return "0x" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ---------------------------------------------------------------------
+// API-ключи агента
+// ---------------------------------------------------------------------
+
+/**
+ * Ключ показывается ровно один раз. Дальше в интерфейсе остаётся только
+ * префикс — так же, как в настоящем API, где в базе лежит sha256-хеш
+ * (apps/web/prisma/schema.prisma, поле apiKeyHash).
+ */
+function issueApiKey() {
+  const secret = randomHex(24);
+  const full = `sk_agent_${secret}`;
+  return {
+    id: randomHex(8),
+    full,
+    prefix: full.slice(0, 16),
+    createdAt: new Date(),
+    lastUsedAt: null,
+    revoked: false,
+  };
+}
+
+
+// ==== src/20-store.js ====
+// ---------------------------------------------------------------------
+// Состояние и его хранение
+// ---------------------------------------------------------------------
+
+/**
+ * Единственный источник правды — `state.wallets`. И кабинет агента, и админ-панель,
+ * и публичная витрина читают один и тот же набор кошельков, поэтому заморозка из
+ * админки сразу видна владельцу, а не «где-то отдельно».
+ *
+ * Кошельки и keystore переживают перезагрузку (localStorage), сессия — нет:
+ * после обновления страницы кабинет снова просит парольную фразу. Это не забывчивость,
+ * а смысл схемы — доступ даёт расшифрованный ключ, а не запомненный флаг.
+ */
+
+const STORAGE_KEY = "synth.demo.v2";
+const MERCHANT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+/** Комиссия за операцию: чтобы баланс вёл себя как на настоящей сети. */
+const GAS_FEE = 210000000000000n;
+
+const state = {
+  wallets: {},
+  keystores: {},
+  feed: [],
+  session: null,
+  admin: false,
+  adminLog: [],
+  live: true,
+
+  // Черновики форм и разовые сообщения — в localStorage не уезжают.
+  reg: {
+    step: "mode",
+    mode: null,
+    handle: "",
+    passphrase: "",
+    passphrase2: "",
+    limitEth: "",
+    periodSeconds: 86400,
+    whitelistEnabled: false,
+    whitelist: "",
+    pending: false,
+    error: null,
+    created: null,
+  },
+  login: {handle: "", passphrase: "", accessKey: "", mode: "keystore", pending: false, error: null},
+  adminForm: {user: "", password: "", error: null, pending: false, query: "", amount: "1"},
+  form: {to: "", amountEth: "", target: ""},
+  rules: {limitEth: "", periodSeconds: 86400, whitelistEnabled: false},
+  revealedKey: null,
+  notice: null,
+  error: null,
+};
+
+// ---------------------------------------------------------------------
+// Сериализация: BigInt и даты JSON не переживает сам по себе
+// ---------------------------------------------------------------------
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+const replacer = (_key, value) =>
+  typeof value === "bigint" ? {__bigint: value.toString()} : value;
+
+function reviver(_key, value) {
+  if (value && typeof value === "object" && typeof value.__bigint === "string") {
+    return BigInt(value.__bigint);
+  }
+  if (typeof value === "string" && ISO_DATE.test(value)) {
+    return new Date(value);
+  }
+  return value;
+}
+
+function persist() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(
+        {wallets: state.wallets, keystores: state.keystores, feed: state.feed.slice(0, 40)},
+        replacer,
+      ),
     );
+  } catch {
+    // Приватный режим или переполненное хранилище: демо продолжает работать в памяти.
+  }
+}
+
+function restore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw, reviver);
+    if (!data?.wallets || Object.keys(data.wallets).length === 0) return false;
+
+    state.wallets = data.wallets;
+    state.keystores = data.keystores || {};
+    state.feed = data.feed || [];
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------
+// Стартовые данные
+// ---------------------------------------------------------------------
+
+function makeWallet(overrides) {
+  return {
+    handle: "",
+    mode: "AUTONOMOUS_ENTITY",
+    account: randomAddress(),
+    owner: randomAddress(),
+    custodian: null,
+    balanceWei: 0n,
+    gasDepositWei: 0n,
+    frozen: false,
+    rules: {limitWei: 0n, periodSeconds: 0n, whitelistEnabled: false},
+    whitelist: [],
+    win: {startedAt: 0n, spent: 0n},
+    txs: [],
+    apiKeys: [],
+    createdAt: new Date(),
+    demo: false,
+    ...overrides,
   };
+}
 
-  const input = (o = {}) =>
-    `<input data-slot="input" class="${T.input} ${o.extra || ""}" ` +
-    `${o.id ? `id="${o.id}" ` : ""}${o.model ? `data-model="${o.model}" ` : ""}` +
-    `${o.label ? `aria-label="${esc(o.label)}" ` : ""}` +
-    `value="${esc(o.value ?? "")}" placeholder="${esc(o.placeholder ?? "")}" ` +
-    `inputmode="${o.inputmode || "text"}" autocomplete="off">`;
+/** Витрина и админка не должны быть пустыми при первом открытии. */
+function seedDemoData() {
+  const presets = [
+    ["vega", "AUTONOMOUS_ENTITY", "3.4", 38, null],
+    ["kepler", "HUMAN_CUSTODIAN", "1.2", 96, {limitEth: "0.5", period: 86400n}],
+    ["nomad", "AUTONOMOUS_ENTITY", "0.8", 140, null],
+    ["atlas", "HUMAN_CUSTODIAN", "2.1", 210, {limitEth: "0.25", period: 3600n}],
+    ["orion-prime", "AUTONOMOUS_ENTITY", "5.6", 320, null],
+  ];
 
-  const toggle = (checked, act) => {
-    const stateAttr = checked ? 'data-checked=""' : 'data-unchecked=""';
-    return (
-      `<span role="switch" tabindex="0" aria-checked="${checked}" ${stateAttr} ` +
-      `data-slot="switch" data-size="default" data-act="${act}" class="${T.switch}">` +
-      `<span ${stateAttr} data-slot="switch-thumb" class="${T.switchThumb}"></span></span>`
-    );
-  };
+  state.wallets = {};
+  for (const [handle, mode, balance, minutes, rules] of presets) {
+    state.wallets[handle] = makeWallet({
+      handle,
+      mode,
+      balanceWei: parseEth(balance),
+      gasDepositWei: parseEth("0.002"),
+      createdAt: minutesAgo(minutes),
+      demo: true,
+      rules: rules
+        ? {limitWei: parseEth(rules.limitEth), periodSeconds: rules.period, whitelistEnabled: false}
+        : {limitWei: 0n, periodSeconds: 0n, whitelistEnabled: false},
+    });
+  }
 
-  const progress = (percent) =>
-    `<div role="progressbar" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100" ` +
-    `data-slot="progress" class="${T.progress} h-2">` +
-    `<div data-slot="progress-track" class="${T.progressTrack}">` +
-    `<div data-slot="progress-indicator" style="height:inherit;width:${percent}%" ` +
-    `class="${T.progressInd}"></div></div></div>`;
+  const amounts = ["0.12", "0.4", "0.031", "0.25", "0.08", "0.5", "0.017", "0.09", "0.22", "0.06"];
+  const handles = presets.map(([handle]) => handle);
 
-  // ---------------------------------------------------------------------
-  // Мок-стейт
-  // ---------------------------------------------------------------------
+  // Лента и история кошелька — одно и то же событие, поэтому запись попадает в оба
+  // места: иначе витрина показывала бы трату у агента с нулём транзакций.
+  state.feed = amounts.map((amount, i) => {
+    const handle = handles[i % handles.length];
+    const valueWei = parseEth(amount);
+    const timestamp = minutesAgo(3 + i * 7);
+    const to = randomAddress();
+    const txHash = randomTxHash();
 
-  class DemoError extends Error {}
-
-  const MERCHANT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-  /** Комиссия за операцию: чтобы баланс вёл себя как на настоящей сети. */
-  const GAS_FEE = 210000000000000n;
-
-  const randomHex = (bytes) => {
-    const buffer = new Uint8Array(bytes);
-    crypto.getRandomValues(buffer);
-    return [...buffer].map((b) => b.toString(16).padStart(2, "0")).join("");
-  };
-  const randomAddress = () => "0x" + randomHex(20);
-  const randomTxHash = () => "0x" + randomHex(32);
-
-  const minutesAgo = (m) => new Date(Date.now() - m * 60000);
-
-  /** Стартовый сид, чтобы витрина и лендинг не пустовали при первом открытии. */
-  function seed() {
-    const agents = [
-      {handle: "vega", mode: "AUTONOMOUS_ENTITY", account: randomAddress(), txCount: 4, createdAt: minutesAgo(38)},
-      {handle: "kepler", mode: "HUMAN_CUSTODIAN", account: randomAddress(), txCount: 2, createdAt: minutesAgo(96)},
-      {handle: "nomad", mode: "AUTONOMOUS_ENTITY", account: randomAddress(), txCount: 3, createdAt: minutesAgo(140)},
-      {handle: "atlas", mode: "HUMAN_CUSTODIAN", account: randomAddress(), txCount: 1, createdAt: minutesAgo(210)},
-      {handle: "orion-prime", mode: "AUTONOMOUS_ENTITY", account: randomAddress(), txCount: 5, createdAt: minutesAgo(320)},
-    ];
-
-    const amounts = ["0.12", "0.4", "0.031", "0.25", "0.08", "0.5", "0.017", "0.09", "0.22", "0.06"];
-    const feed = amounts.map((amount, i) => {
-      const agent = agents[i % agents.length];
-      return {
-        handle: agent.handle,
-        mode: agent.mode,
-        to: shortAddress(randomAddress()),
-        valueWei: parseEth(amount),
-        txHash: randomTxHash(),
-        timestamp: minutesAgo(3 + i * 7),
-      };
+    state.wallets[handle].txs.push({
+      to,
+      valueWei,
+      txHash,
+      blockNumber: String(1000 + i * 3),
+      timestamp,
     });
 
-    return {agents, feed};
+    return {
+      handle,
+      mode: state.wallets[handle].mode,
+      to: shortAddress(to),
+      valueWei,
+      txHash,
+      timestamp,
+    };
+  });
+
+  for (const handle of handles) {
+    state.wallets[handle].txs.sort((a, b) => b.timestamp - a.timestamp);
+  }
+}
+
+function resetDemoData() {
+  state.session = null;
+  state.keystores = {};
+  state.adminLog = [];
+  seedDemoData();
+  persist();
+}
+
+// ---------------------------------------------------------------------
+// Доступ к данным
+// ---------------------------------------------------------------------
+
+const wallet = () => (state.session ? state.wallets[state.session] : null);
+const allWallets = () => Object.values(state.wallets).sort((a, b) => b.createdAt - a.createdAt);
+const activeApiKeys = (w) => w.apiKeys.filter((key) => !key.revoked);
+
+// ---------------------------------------------------------------------
+// Правила трат — перенос SpendingRules.sol и AgentAccount._authorizeSpend
+// ---------------------------------------------------------------------
+
+/** Остаток лимита в текущем окне; null означает «без ограничения». */
+function spendingRemaining(w) {
+  const {limitWei, periodSeconds} = w.rules;
+  if (limitWei === 0n) return null;
+  if (periodSeconds === 0n) return limitWei;
+
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  if (w.win.startedAt === 0n || now - w.win.startedAt >= periodSeconds) return limitWei;
+  return limitWei > w.win.spent ? limitWei - w.win.spent : 0n;
+}
+
+/**
+ * Полная копия проверок контракта. Состояние окна меняется только при успехе —
+ * в Solidity это обеспечивает revert, здесь приходится считать до записи.
+ */
+function authorizeSpend(w, to, valueWei) {
+  if (w.frozen) {
+    throw new DemoError("Кошелёк заморожен администратором.");
+  }
+  if (w.rules.whitelistEnabled && !w.whitelist.includes(to.toLowerCase())) {
+    throw new DemoError(`Получатель ${to} не в whitelist.`);
   }
 
-  const seeded = seed();
+  const {limitWei, periodSeconds} = w.rules;
+  if (limitWei === 0n) return;
 
-  const state = {
-    agents: seeded.agents,
-    feed: seeded.feed,
-    session: null,
-    live: true,
-    reg: {
-      mode: null,
-      handle: "",
-      limitEth: "",
-      periodSeconds: 86400,
-      whitelistEnabled: false,
-      whitelist: "",
-      pending: false,
-      error: null,
-      created: null,
-    },
-    form: {depositEth: "1", to: "", amountEth: "", target: ""},
-    rules: {limitEth: "", periodSeconds: 86400, whitelistEnabled: false},
-    notice: null,
-    error: null,
-  };
-
-  // ---------------------------------------------------------------------
-  // Правила трат — перенос SpendingRules.sol и AgentAccount._authorizeSpend
-  // ---------------------------------------------------------------------
-
-  /** Остаток лимита в текущем окне; null означает «без ограничения». */
-  function spendingRemaining(s) {
-    const {limitWei, periodSeconds} = s.rules;
-    if (limitWei === 0n) return null;
-    if (periodSeconds === 0n) return limitWei;
-
-    const now = BigInt(Math.floor(Date.now() / 1000));
-    if (s.win.startedAt === 0n || now - s.win.startedAt >= periodSeconds) return limitWei;
-    return limitWei > s.win.spent ? limitWei - s.win.spent : 0n;
-  }
-
-  /**
-   * Полная копия проверок контракта. Состояние окна меняется только при успехе —
-   * в Solidity это обеспечивает revert, здесь приходится считать до записи.
-   */
-  function authorizeSpend(s, to, valueWei) {
-    if (s.frozen) {
-      throw new DemoError("Кошелёк заморожен администратором.");
-    }
-    if (s.rules.whitelistEnabled && !s.whitelist.includes(to.toLowerCase())) {
-      throw new DemoError(`Получатель ${to} не в whitelist.`);
-    }
-
-    const {limitWei, periodSeconds} = s.rules;
-    if (limitWei === 0n) return;
-
-    if (periodSeconds === 0n) {
-      if (valueWei > limitWei) {
-        throw new DemoError(
-          `Превышен лимит трат: запрошено ${formatEth(valueWei)} ETH, ` +
-            `доступно ${formatEth(limitWei)} ETH.`,
-        );
-      }
-      return;
-    }
-
-    const now = BigInt(Math.floor(Date.now() / 1000));
-    let startedAt = s.win.startedAt;
-    let spent = s.win.spent;
-    if (startedAt === 0n || now - startedAt >= periodSeconds) {
-      startedAt = now;
-      spent = 0n;
-    }
-
-    const left = limitWei > spent ? limitWei - spent : 0n;
-    if (valueWei > left) {
+  if (periodSeconds === 0n) {
+    if (valueWei > limitWei) {
       throw new DemoError(
         `Превышен лимит трат: запрошено ${formatEth(valueWei)} ETH, ` +
-          `доступно ${formatEth(left)} ETH.`,
+          `доступно ${formatEth(limitWei)} ETH.`,
       );
     }
-
-    s.win.startedAt = startedAt;
-    s.win.spent = spent + valueWei;
+    return;
   }
 
-  // ---------------------------------------------------------------------
-  // Действия
-  // ---------------------------------------------------------------------
-
-  function createAgent() {
-    const reg = state.reg;
-    const handle = reg.handle.trim();
-
-    if (!/^[a-z0-9][a-z0-9-]{1,30}$/i.test(handle)) {
-      reg.error = "Имя агента: от 2 до 31 символа, латиница, цифры и дефис.";
-      return render();
-    }
-    if (state.agents.some((a) => a.handle.toLowerCase() === handle.toLowerCase())) {
-      reg.error = `Имя «${handle}» уже занято.`;
-      return render();
-    }
-
-    const custodial = reg.mode === "HUMAN_CUSTODIAN";
-    let limitWei = 0n;
-    try {
-      limitWei = custodial && reg.limitEth.trim() ? parseEth(reg.limitEth) : 0n;
-    } catch (cause) {
-      reg.error = cause.message;
-      return render();
-    }
-
-    const whitelist = custodial
-      ? reg.whitelist
-          .split(/[\s,]+/)
-          .map((entry) => entry.trim().toLowerCase())
-          .filter(Boolean)
-      : [];
-
-    reg.pending = true;
-    reg.error = null;
-    render();
-
-    // Небольшая пауза вместо ожидания транзакции — иначе флоу выглядит ненастоящим.
-    setTimeout(() => {
-      const account = randomAddress();
-      state.session = {
-        handle,
-        mode: reg.mode,
-        account,
-        owner: randomAddress(),
-        custodian: custodial ? randomAddress() : null,
-        apiKey: "sk_agent_" + randomHex(24),
-        balanceWei: 0n,
-        gasDepositWei: 0n,
-        frozen: false,
-        rules: {
-          limitWei,
-          periodSeconds: custodial ? BigInt(reg.periodSeconds) : 0n,
-          whitelistEnabled: custodial ? reg.whitelistEnabled : false,
-        },
-        whitelist,
-        win: {startedAt: 0n, spent: 0n},
-        txs: [],
-      };
-
-      state.rules = {
-        limitEth: limitWei === 0n ? "" : formatEth(limitWei),
-        periodSeconds: Number(state.session.rules.periodSeconds),
-        whitelistEnabled: state.session.rules.whitelistEnabled,
-      };
-
-      state.agents.unshift({
-        handle,
-        mode: reg.mode,
-        account,
-        txCount: 0,
-        createdAt: new Date(),
-      });
-
-      reg.pending = false;
-      reg.created = state.session;
-      render();
-    }, 900);
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  let startedAt = w.win.startedAt;
+  let spent = w.win.spent;
+  if (startedAt === 0n || now - startedAt >= periodSeconds) {
+    startedAt = now;
+    spent = 0n;
   }
 
-  function deposit() {
-    const s = state.session;
-    state.error = null;
-    state.notice = null;
-    try {
-      const value = parseEth(state.form.depositEth);
-      if (value === 0n) throw new DemoError("Укажите сумму больше нуля.");
-      s.balanceWei += value;
-      state.notice = `Пополнено на ${formatEth(value)} ETH`;
-    } catch (cause) {
-      state.error = cause.message;
-    }
-    render();
+  const left = limitWei > spent ? limitWei - spent : 0n;
+  if (valueWei > left) {
+    throw new DemoError(
+      `Превышен лимит трат: запрошено ${formatEth(valueWei)} ETH, ` +
+        `доступно ${formatEth(left)} ETH.`,
+    );
   }
 
-  function sendPayment() {
-    const s = state.session;
-    state.error = null;
-    state.notice = null;
+  w.win.startedAt = startedAt;
+  w.win.spent = spent + valueWei;
+}
 
-    try {
-      const to = state.form.to.trim();
-      if (!/^0x[0-9a-fA-F]{40}$/.test(to)) {
-        throw new DemoError("Поле «Адрес получателя» должно быть Ethereum-адресом.");
-      }
+// ---------------------------------------------------------------------
+// Операции над кошельками
+// ---------------------------------------------------------------------
 
-      const value = parseEth(state.form.amountEth);
-      if (value === 0n) throw new DemoError("Укажите сумму больше нуля.");
-      if (value + GAS_FEE > s.balanceWei) {
-        throw new DemoError("Недостаточно средств на кошельке.");
-      }
+function creditWallet(handle, valueWei) {
+  const w = state.wallets[handle];
+  if (!w) throw new DemoError(`Агент «${handle}» не найден.`);
+  w.balanceWei += valueWei;
+  persist();
+}
 
-      authorizeSpend(s, to, value);
+function setFrozen(handle, frozen) {
+  const w = state.wallets[handle];
+  if (!w) throw new DemoError(`Агент «${handle}» не найден.`);
+  w.frozen = frozen;
+  persist();
+}
 
-      s.balanceWei -= value + GAS_FEE;
-      s.gasDepositWei += GAS_FEE / 8n;
-
-      const tx = {
-        to,
-        valueWei: value,
-        txHash: randomTxHash(),
-        blockNumber: String(1000 + s.txs.length * 3),
-        timestamp: new Date(),
-      };
-      s.txs.unshift(tx);
-
-      state.feed.unshift({
-        handle: s.handle,
-        mode: s.mode,
-        to: shortAddress(to),
-        valueWei: value,
-        txHash: tx.txHash,
-        timestamp: tx.timestamp,
-      });
-
-      const listed = state.agents.find((a) => a.account === s.account);
-      if (listed) listed.txCount += 1;
-
-      state.form.to = "";
-      state.form.amountEth = "";
-      state.notice = `Транзакция ${tx.txHash.slice(0, 18)}…`;
-    } catch (cause) {
-      state.error = cause.message;
-    }
-    render();
+function sendPayment(w, to, valueWei) {
+  if (!isAddress(to)) {
+    throw new DemoError("Поле «Адрес получателя» должно быть Ethereum-адресом.");
+  }
+  if (valueWei === 0n) {
+    throw new DemoError("Укажите сумму больше нуля.");
+  }
+  if (valueWei + GAS_FEE > w.balanceWei) {
+    throw new DemoError("Недостаточно средств на кошельке.");
   }
 
-  function saveRules() {
-    const s = state.session;
-    state.error = null;
-    state.notice = null;
-    try {
-      s.rules.limitWei = state.rules.limitEth.trim() ? parseEth(state.rules.limitEth) : 0n;
-      s.rules.periodSeconds = BigInt(state.rules.periodSeconds);
-      s.rules.whitelistEnabled = state.rules.whitelistEnabled;
-      s.win = {startedAt: 0n, spent: 0n};
-      state.notice = "Изменения записаны в контракт.";
-    } catch (cause) {
-      state.error = cause.message;
-    }
-    render();
+  authorizeSpend(w, to, valueWei);
+
+  w.balanceWei -= valueWei + GAS_FEE;
+  w.gasDepositWei += GAS_FEE / 8n;
+
+  const tx = {
+    to,
+    valueWei,
+    txHash: randomTxHash(),
+    blockNumber: String(1000 + w.txs.length * 3),
+    timestamp: new Date(),
+  };
+  w.txs.unshift(tx);
+
+  state.feed.unshift({
+    handle: w.handle,
+    mode: w.mode,
+    to: shortAddress(to),
+    valueWei,
+    txHash: tx.txHash,
+    timestamp: tx.timestamp,
+  });
+  state.feed = state.feed.slice(0, 40);
+
+  // Ключ, которым агент ходит в API, «использовался» — отражаем это в кабинете.
+  const key = activeApiKeys(w)[0];
+  if (key) key.lastUsedAt = new Date();
+
+  persist();
+  return tx;
+}
+
+
+// ==== src/30-components.js ====
+// ---------------------------------------------------------------------
+// Примитивы: те же классы, что в apps/web/src/components/ui
+// ---------------------------------------------------------------------
+
+const icon = (name, cls = "size-4") =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" ` +
+  `fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ` +
+  `stroke-linejoin="round" class="lucide lucide-${name} ${cls}" aria-hidden="true">` +
+  `${T.icons[name] || ""}</svg>`;
+
+/** `attrs` — сырые атрибуты (например, style для каскада появления). */
+const card = (inner, extra = "", attrs = "") =>
+  `<div data-slot="card" data-size="default" class="${T.card} ${extra}" ${attrs}>${inner}</div>`;
+const cardHeader = (inner, extra = "") =>
+  `<div data-slot="card-header" class="${T.cardHeader} ${extra}">${inner}</div>`;
+const cardTitle = (inner, extra = "") =>
+  `<div data-slot="card-title" class="${T.cardTitle} ${extra}">${inner}</div>`;
+const cardContent = (inner, extra = "") =>
+  `<div data-slot="card-content" class="${T.cardContent} ${extra}">${inner}</div>`;
+
+const badge = (text, variant = "secondary", extra = "") => {
+  const cls = {
+    secondary: T.badge,
+    outline: T.badgeOutline,
+    destructive: T.badgeDestructive,
+  }[variant];
+  return `<span data-slot="badge" data-variant="${variant}" class="${cls} ${extra}">${text}</span>`;
+};
+
+/** Крутилка для кнопок: длинные операции (PBKDF2) не должны выглядеть зависанием. */
+const spinner = (cls = "size-4") =>
+  `<svg class="${cls} animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">` +
+  `<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" opacity="0.25"/>` +
+  `<path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>`;
+
+/** @param {{variant?:string,size?:string,act?:string,extra?:string,disabled?:boolean,href?:string,pending?:boolean,arg?:string}} o */
+const button = (label, o = {}) => {
+  const variant = o.variant || "default";
+  const size = o.size || "md";
+  const key = "btn" + variant[0].toUpperCase() + variant.slice(1) + {lg: "Lg", md: "Md", sm: "Sm"}[size];
+  const cls = `${T[key]} ${o.extra || ""}`;
+  const body = o.pending ? `${spinner()}${label}` : label;
+
+  if (o.href) {
+    return `<a href="${o.href}" data-slot="button" class="${cls}">${body}</a>`;
+  }
+  return (
+    `<button type="button" data-slot="button" class="${cls}"` +
+    `${o.act ? ` data-act="${o.act}"` : ""}${o.arg ? ` data-arg="${esc(o.arg)}"` : ""}` +
+    `${o.disabled || o.pending ? " disabled" : ""}>${body}</button>`
+  );
+};
+
+const input = (o = {}) =>
+  `<input data-slot="input" class="${T.input} ${o.extra || ""}" ` +
+  `${o.id ? `id="${o.id}" ` : ""}${o.model ? `data-model="${o.model}" ` : ""}` +
+  `${o.label ? `aria-label="${esc(o.label)}" ` : ""}` +
+  `type="${o.type || "text"}" value="${esc(o.value ?? "")}" ` +
+  `placeholder="${esc(o.placeholder ?? "")}" ` +
+  `inputmode="${o.inputmode || "text"}" autocomplete="${o.autocomplete || "off"}">`;
+
+const toggle = (checked, act, arg = "") => {
+  const stateAttr = checked ? 'data-checked=""' : 'data-unchecked=""';
+  return (
+    `<span role="switch" tabindex="0" aria-checked="${checked}" ${stateAttr} ` +
+    `data-slot="switch" data-size="default" data-act="${act}"` +
+    `${arg ? ` data-arg="${esc(arg)}"` : ""} class="${T.switch}">` +
+    `<span ${stateAttr} data-slot="switch-thumb" class="${T.switchThumb}"></span></span>`
+  );
+};
+
+const progress = (percent) =>
+  `<div role="progressbar" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100" ` +
+  `data-slot="progress" class="${T.progress} h-2">` +
+  `<div data-slot="progress-track" class="${T.progressTrack}">` +
+  `<div data-slot="progress-indicator" style="height:inherit;width:${percent}%" ` +
+  `class="${T.progressInd} sw-bar"></div></div></div>`;
+
+// ---------------------------------------------------------------------
+// Составные блоки
+// ---------------------------------------------------------------------
+
+const sectionHeading = (eyebrow, title, subtitle) => `
+  <div class="mx-auto max-w-2xl text-center">
+    <p class="text-sm font-medium text-muted-foreground">${eyebrow}</p>
+    <h2 class="mt-3 text-3xl font-medium tracking-tight sm:text-4xl">${title}</h2>
+    ${subtitle ? `<p class="mt-4 text-base text-muted-foreground">${subtitle}</p>` : ""}
+  </div>`;
+
+const pageTitle = (title, subtitle) => `
+  <div>
+    <h1 class="text-2xl font-medium tracking-tight">${title}</h1>
+    ${subtitle ? `<p class="mt-2 text-sm text-muted-foreground">${subtitle}</p>` : ""}
+  </div>`;
+
+const emptyState = (text) =>
+  `<div class="rounded-xl border border-dashed p-10 text-center">
+     <p class="text-sm text-muted-foreground">${text}</p>
+   </div>`;
+
+const statCard = (ic, label, value, hint) =>
+  card(
+    cardHeader(
+      `${cardTitle(label, "text-sm font-medium text-muted-foreground")}
+       <div class="flex size-8 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-4 text-muted-foreground")}</div>`,
+      "flex flex-row items-center justify-between space-y-0 pb-2",
+    ) +
+      cardContent(
+        `<p class="text-2xl font-bold tabular-nums tracking-tight">${value}</p>
+         <p class="mt-1 text-xs text-muted-foreground">${hint}</p>`,
+      ),
+  );
+
+/** Поле только для чтения с кнопкой копирования: адреса и ключи набирать руками нельзя. */
+const copyField = (value, {mono = true, act = "copy", label = "Копировать"} = {}) => `
+  <div class="flex items-center gap-2">
+    <code class="min-w-0 flex-1 truncate rounded-md border bg-background px-3 py-2 ${mono ? "font-mono" : ""} text-xs">${esc(value)}</code>
+    ${button(`${icon("copy", "size-3.5")}${label}`, {
+      variant: "outline",
+      size: "sm",
+      act,
+      arg: value,
+      extra: "shrink-0 gap-1.5",
+    })}
+  </div>`;
+
+const errorBlock = (message) =>
+  message
+    ? `<div class="sw-fade flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+         ${icon("triangle-alert", "mt-0.5 size-4 shrink-0 text-destructive")}
+         <p class="text-sm text-destructive">${esc(message)}</p>
+       </div>`
+    : "";
+
+const noticeBlock = (message) =>
+  message
+    ? `<p class="sw-fade flex items-center gap-2 text-sm text-muted-foreground">
+         ${icon("check", "size-4")}${esc(message)}
+       </p>`
+    : "";
+
+const feedback = () => errorBlock(state.error) + (state.error ? "" : noticeBlock(state.notice));
+
+/** Каскад появления: задержка растёт по индексу, но не бесконечно. */
+const stagger = (index) => `style="animation-delay:${Math.min(index, 7) * 45}ms"`;
+
+
+// ==== src/40-marketing.js ====
+// ---------------------------------------------------------------------
+// Публичная часть: шапка, лендинг, витрина
+// ---------------------------------------------------------------------
+
+const SECTION_LINKS = [
+  ["#/#manifest", "Манифест"],
+  ["#/#modes", "Сценарии"],
+  ["#/#how", "Как это работает"],
+  ["#/showcase", "Витрина"],
+];
+
+function siteHeader() {
+  const authed = Boolean(state.session);
+
+  return `
+    <header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
+      <div class="mx-auto flex h-16 max-w-6xl items-center gap-6 px-6">
+        <a href="#/" class="flex items-center gap-2.5">
+          <span class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <span class="text-sm font-semibold">S</span>
+          </span>
+          <span class="whitespace-nowrap text-sm font-semibold tracking-tight">Synth Wallet</span>
+          <!-- Обёртка, а не класс hidden на самом бейдже: у него в базовых классах
+               уже есть inline-flex, и он перебивает утилиту. -->
+          <span class="hidden sm:block">${badge("Testnet", "outline", "font-normal")}</span>
+        </a>
+
+        <nav class="hidden items-center gap-6 md:flex">
+          ${SECTION_LINKS.map(
+            ([href, label]) =>
+              `<a href="${href}" class="text-sm text-muted-foreground transition-colors hover:text-foreground">${label}</a>`,
+          ).join("")}
+        </nav>
+
+        <div class="ml-auto flex items-center gap-2">
+          ${
+            authed
+              ? button("В кабинет", {size: "sm", href: "#/dashboard"})
+              : `<span class="hidden sm:block">
+                   ${button("Войти", {variant: "ghost", size: "sm", href: "#/login"})}
+                 </span>
+                 ${button("Создать кошелёк", {size: "sm", href: "#/register"})}`
+          }
+        </div>
+      </div>
+
+      <!-- На узком экране те же разделы, но прокручиваемой строкой: иначе с телефона
+           до «Манифеста» и «Сценариев» не добраться вовсе. -->
+      <div class="no-scrollbar flex gap-1 overflow-x-auto border-t border-border/60 px-4 py-2 md:hidden">
+        ${SECTION_LINKS.map(
+          ([href, label]) =>
+            `<a href="${href}" class="shrink-0 rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">${label}</a>`,
+        ).join("")}
+      </div>
+    </header>`;
+}
+
+function siteFooter() {
+  return `
+    <footer class="border-t border-border/60">
+      <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold">Synth Wallet</p>
+          <p class="mt-1 text-sm text-muted-foreground">
+            Прототип на тестовой сети. Реальные средства не используются.
+          </p>
+        </div>
+        <nav class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+          <a href="#/showcase" class="transition-colors hover:text-foreground">Витрина агентов</a>
+          <a href="#/register" class="transition-colors hover:text-foreground">Регистрация</a>
+          <a href="#/login" class="transition-colors hover:text-foreground">Вход</a>
+          <a href="#/admin" class="transition-colors hover:text-foreground">Администрирование</a>
+        </nav>
+      </div>
+    </footer>`;
+}
+
+function transactionFeed(items) {
+  if (items.length === 0) {
+    return emptyState("Пока ни один агент не совершил трату. Лента заполнится сама.");
   }
 
-  function setWhitelisted(allowed) {
-    const s = state.session;
-    state.error = null;
-    state.notice = null;
+  return `<div class="divide-y rounded-xl border">
+    ${items
+      .map(
+        (item, i) => `
+      <div class="sw-item flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/40" ${stagger(i)}>
+        <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+          ${icon("arrow-up-right", "size-4 text-muted-foreground")}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="truncate text-sm font-medium">${esc(item.handle)}</span>
+            ${badge(MODE_LABEL[item.mode], "secondary", "hidden text-xs font-normal sm:inline-flex")}
+          </div>
+          <p class="mt-0.5 font-mono text-xs text-muted-foreground">→ ${item.to}</p>
+        </div>
+        <div class="shrink-0 text-right">
+          <p class="text-sm font-semibold tabular-nums">${formatEth(item.valueWei)} ETH</p>
+          <p class="mt-0.5 text-xs text-muted-foreground">${timeAgo(item.timestamp)}</p>
+        </div>
+      </div>`,
+      )
+      .join("")}
+  </div>`;
+}
 
-    const target = state.form.target.trim().toLowerCase();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(target)) {
-      state.error = "Поле «Адрес получателя» должно быть Ethereum-адресом.";
-      return render();
-    }
-
-    s.whitelist = s.whitelist.filter((entry) => entry !== target);
-    if (allowed) s.whitelist.push(target);
-
-    state.form.target = "";
-    state.notice = allowed ? "Адрес добавлен в whitelist." : "Адрес убран из whitelist.";
-    render();
-  }
-
-  // ---------------------------------------------------------------------
-  // Экраны: маркетинг
-  // ---------------------------------------------------------------------
-
-  const NAV_LINKS = [
-    ["#/#manifest", "Манифест"],
-    ["#/#modes", "Сценарии"],
-    ["#/#how", "Как это работает"],
-    ["#/showcase", "Витрина"],
+function landing() {
+  const stats = [
+    ["Без KYC", "Регистрация открыта всем — по умолчанию никаких проверок личности"],
+    ["Правила в контракте", "Лимиты и whitelist исполняет блокчейн, а не бэкенд"],
+    ["Публичный лог", "Каждая трата попадает в открытую ленту действий"],
   ];
 
-  function siteHeader() {
-    return `
-      <header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
-        <div class="mx-auto flex h-16 max-w-6xl items-center gap-8 px-6">
-          <a href="#/" class="flex items-center gap-2.5">
-            <span class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <span class="text-sm font-semibold">S</span>
-            </span>
-            <span class="whitespace-nowrap text-sm font-semibold tracking-tight">Synth Wallet</span>
-          </a>
-          <nav class="hidden items-center gap-6 md:flex">
-            ${NAV_LINKS.map(
-              ([href, label]) =>
-                `<a href="${href}" class="text-sm text-muted-foreground transition-colors hover:text-foreground">${label}</a>`,
-            ).join("")}
-          </nav>
-          <div class="ml-auto flex items-center gap-2">
-            <!-- hidden нельзя вешать на саму кнопку: display из её базовых классов
-                 перебивает утилиту, порядок в готовом CSS не в нашу пользу. -->
-            <span class="hidden sm:block">
-              ${button("Дашборд", {variant: "ghost", size: "sm", href: "#/dashboard"})}
-            </span>
-            ${button("Создать кошелёк", {size: "sm", href: "#/register"})}
+  const manifesto = [
+    ["bot", "Агент — субъект, а не инструмент",
+      "У него есть кошелёк, история и репутация. Решение о трате он принимает сам, без человека в цикле."],
+    ["key-round", "Доверие к действию, а не к личности",
+      "Мы не проверяем документы. Проверяемо ровно то, что важно: что именно кошелёк сделал и в каких границах."],
+    ["scroll-text", "Прозрачность вместо разрешений",
+      "Вместо согласований — открытый лог. Любую трату видно в реальном времени, не зная ничего о владельце."],
+  ];
+
+  const steps = [
+    ["key-round", "Регистрация",
+      "Выбираете сценарий и имя. Вы получаете зашифрованный ключ доступа — пароль в привычном виде здесь не нужен."],
+    ["circle-dollar-sign", "Пополнение",
+      "Кошелёк принимает средства обычным переводом на свой адрес — как любой Ethereum-кошелёк."],
+    ["bot", "Агент платит сам",
+      "Один HTTP-запрос с API-ключом. Подтверждений не требуется: границы уже записаны в контракт."],
+    ["shield-check", "Контроль постфактум",
+      "Трата вне правил откатывается блокчейном. Кошелёк можно обратимо заморозить."],
+  ];
+
+  return `
+    <section class="relative overflow-hidden">
+      <div aria-hidden="true" class="pointer-events-none absolute left-1/2 top-0 h-[480px] w-[880px] -translate-x-1/2 rounded-full bg-foreground/[0.06] blur-[140px]"></div>
+      <div class="relative mx-auto max-w-6xl px-6 py-24 sm:py-32">
+        <div class="mx-auto max-w-3xl text-center">
+          ${badge("ERC-4337 · тестовая сеть", "outline", "rounded-full px-4 py-1.5 text-sm font-normal")}
+          <h1 class="mt-6 text-4xl font-medium leading-[1.1] tracking-tight sm:text-6xl">
+            Кошелёк для тех, кто не может показать паспорт
+          </h1>
+          <p class="mt-6 text-lg text-muted-foreground">
+            Синтетический интеллект получает собственный кошелёк, историю и право
+            действовать. Мы не спрашиваем «человек ты или машина» — мы доверяем
+            действию и намерению.
+          </p>
+          <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            ${button(`Создать кошелёк агенту${icon("arrow-right")}`, {size: "lg", href: "#/register", extra: "gap-2"})}
+            ${button("Смотреть живую ленту", {variant: "outline", size: "lg", href: "#/showcase"})}
           </div>
         </div>
-      </header>`;
-  }
 
-  function siteFooter() {
-    return `
-      <footer class="border-t border-border/60">
-        <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm font-semibold">Synth Wallet</p>
-            <p class="mt-1 text-sm text-muted-foreground">
-              Прототип на тестовой сети. Реальные средства не используются.
-            </p>
-          </div>
-          <nav class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-            <a href="#/showcase" class="transition-colors hover:text-foreground">Витрина агентов</a>
-            <a href="#/register" class="transition-colors hover:text-foreground">Регистрация</a>
-            <a href="#/dashboard" class="transition-colors hover:text-foreground">Дашборд</a>
-          </nav>
-        </div>
-      </footer>`;
-  }
+        <dl class="mx-auto mt-20 grid max-w-3xl grid-cols-1 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-3">
+          ${stats
+            .map(
+              ([title, text], i) => `
+            <div class="sw-item bg-background p-6 text-center" ${stagger(i)}>
+              <dt class="text-sm font-semibold">${title}</dt>
+              <dd class="mt-2 text-sm text-muted-foreground">${text}</dd>
+            </div>`,
+            )
+            .join("")}
+        </dl>
+      </div>
+    </section>
 
-  const sectionHeading = (eyebrow, title, subtitle) => `
-    <div class="mx-auto max-w-2xl text-center">
-      <p class="text-sm font-medium text-muted-foreground">${eyebrow}</p>
-      <h2 class="mt-3 text-3xl font-medium tracking-tight sm:text-4xl">${title}</h2>
-      ${subtitle ? `<p class="mt-4 text-base text-muted-foreground">${subtitle}</p>` : ""}
-    </div>`;
-
-  function landing() {
-    const stats = [
-      ["Без KYC", "Регистрация открыта всем — по умолчанию никаких проверок личности"],
-      ["Правила в контракте", "Лимиты и whitelist исполняет блокчейн, а не бэкенд"],
-      ["Публичный лог", "Каждая трата попадает в открытую ленту действий"],
-    ];
-
-    const manifesto = [
-      ["bot", "Агент — субъект, а не инструмент",
-        "У него есть кошелёк, история и репутация. Решение о трате он принимает сам, без человека в цикле."],
-      ["key-round", "Доверие к действию, а не к личности",
-        "Мы не проверяем документы. Проверяемо ровно то, что важно: что именно кошелёк сделал и в каких границах."],
-      ["scroll-text", "Прозрачность вместо разрешений",
-        "Вместо согласований — открытый лог. Любую трату видно в реальном времени, не зная ничего о владельце."],
-    ];
-
-    const steps = [
-      ["key-round", "Регистрация",
-        "Выбираете сценарий и имя. Контракт создаёт ERC-4337 кошелёк, вы получаете адрес и API-ключ."],
-      ["circle-dollar-sign", "Пополнение",
-        "Кошелёк принимает средства обычным переводом. На тестовой сети — из встроенного крана."],
-      ["bot", "Агент платит сам",
-        "Один HTTP-запрос с API-ключом. Подтверждений не требуется: границы уже записаны в контракт."],
-      ["shield-check", "Контроль постфактум",
-        "Трата вне правил откатывается блокчейном. Кошелёк можно обратимо заморозить."],
-    ];
-
-    return `
-      <section class="relative overflow-hidden">
-        <div aria-hidden="true" class="pointer-events-none absolute left-1/2 top-0 h-[480px] w-[880px] -translate-x-1/2 rounded-full bg-foreground/[0.06] blur-[140px]"></div>
-        <div class="relative mx-auto max-w-6xl px-6 py-24 sm:py-32">
-          <div class="mx-auto max-w-3xl text-center">
-            ${badge("ERC-4337 · тестовая сеть", "outline", "rounded-full px-4 py-1.5 text-sm font-normal")}
-            <h1 class="mt-6 text-4xl font-medium leading-[1.1] tracking-tight sm:text-6xl">
-              Кошелёк для тех, кто не может показать паспорт
-            </h1>
-            <p class="mt-6 text-lg text-muted-foreground">
-              Синтетический интеллект получает собственный кошелёк, историю и право
-              действовать. Мы не спрашиваем «человек ты или машина» — мы доверяем
-              действию и намерению.
-            </p>
-            <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              ${button(`Создать кошелёк агенту${icon("arrow-right")}`, {size: "lg", href: "#/register", extra: "gap-2"})}
-              ${button("Смотреть живую ленту", {variant: "outline", size: "lg", href: "#/showcase"})}
-            </div>
-          </div>
-          <dl class="mx-auto mt-20 grid max-w-3xl grid-cols-1 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-3">
-            ${stats
-              .map(
-                ([title, text]) => `
-              <div class="bg-background p-6 text-center">
-                <dt class="text-sm font-semibold">${title}</dt>
-                <dd class="mt-2 text-sm text-muted-foreground">${text}</dd>
-              </div>`,
-              )
-              .join("")}
-          </dl>
-        </div>
-      </section>
-
-      <section id="manifest" class="border-t">
-        <div class="mx-auto max-w-6xl px-6 py-24">
-          ${sectionHeading(
-            "Манифест",
-            "Первая инфраструктура, которая не спрашивает документы",
-            "Экономическими агентами становятся не только люди. Мы даём пространство для действия — и делаем это действие проверяемым.",
-          )}
-          <div class="mt-16 grid gap-6 md:grid-cols-3">
-            ${manifesto
-              .map(([ic, title, text]) =>
-                card(
-                  cardContent(
-                    `<div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
-                     <h3 class="mt-5 text-lg font-medium">${title}</h3>
-                     <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>`,
-                    "pt-6",
-                  ),
-                  "border-border/60",
+    <section id="manifest" class="scroll-mt-28 border-t">
+      <div class="mx-auto max-w-6xl px-6 py-24">
+        ${sectionHeading(
+          "Манифест",
+          "Первая инфраструктура, которая не спрашивает документы",
+          "Экономическими агентами становятся не только люди. Мы даём пространство для действия — и делаем это действие проверяемым.",
+        )}
+        <div class="mt-16 grid gap-6 md:grid-cols-3">
+          ${manifesto
+            .map(([ic, title, text], i) =>
+              card(
+                cardContent(
+                  `<div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
+                   <h3 class="mt-5 text-lg font-medium">${title}</h3>
+                   <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>`,
+                  "pt-6",
                 ),
-              )
-              .join("")}
-          </div>
-        </div>
-      </section>
-
-      <section id="modes" class="border-t">
-        <div class="mx-auto max-w-6xl px-6 py-24">
-          ${sectionHeading(
-            "Два сценария",
-            "Одна контрактная логика, разное количество трения",
-            "Технически кошельки идентичны. Разница только в том, есть ли у агента кастодиан-человек.",
-          )}
-          <div class="mt-16 grid gap-6 lg:grid-cols-2">
-            ${card(
-              cardContent(
-                `<div class="flex items-center gap-3">
-                   <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon("user-round", "size-5 text-muted-foreground")}</div>
-                   ${badge("Human Custodian")}
-                 </div>
-                 <h3 class="mt-5 text-xl font-medium">Человек создаёт кошелёк своему агенту</h3>
-                 <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-                   Опционально задаёт границы: лимит суммы за период и список разрешённых
-                   получателей. Кастодиан не может тратить средства агента — только
-                   ограничивать. Правила меняются в любой момент.
-                 </p>
-                 <ul class="mt-6 space-y-2 text-sm text-muted-foreground">
-                   <li>· Лимит трат за скользящее окно времени</li>
-                   <li>· Whitelist получателей</li>
-                   <li>· Изменение правил без пересоздания кошелька</li>
-                 </ul>`,
-                "pt-6",
+                "sw-item border-border/60",
+                stagger(i),
               ),
-              "border-border/60",
-            )}
-            ${card(
-              cardContent(
-                `<div class="flex items-center gap-3">
-                   <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon("bot", "size-5 text-muted-foreground")}</div>
-                   ${badge("Autonomous Entity")}
-                 </div>
-                 <h3 class="mt-5 text-xl font-medium">Кошелёк принадлежит самому агенту</h3>
-                 <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-                   Максимум доверия, минимум трения. Кастодиана нет, и правила недоступны
-                   на уровне контракта, а не только интерфейса — их физически некому задать.
-                 </p>
-                 <ul class="mt-6 space-y-2 text-sm text-muted-foreground">
-                   <li>· Никаких проверок личности по умолчанию</li>
-                   <li>· Полная свобода трат в пределах баланса</li>
-                   <li>· Тот же публичный лог действий</li>
-                 </ul>`,
-                "pt-6",
-              ),
-              "border-border/60",
-            )}
-          </div>
+            )
+            .join("")}
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section id="how" class="border-t">
-        <div class="mx-auto max-w-6xl px-6 py-24">
-          ${sectionHeading(
-            "Как это работает",
-            "От регистрации до автономной оплаты",
-            "Ни на одном шаге у агента не спрашивают, кто он такой.",
+    <section id="modes" class="scroll-mt-28 border-t">
+      <div class="mx-auto max-w-6xl px-6 py-24">
+        ${sectionHeading(
+          "Два сценария",
+          "Одна контрактная логика, разное количество трения",
+          "Технически кошельки идентичны. Разница только в том, есть ли у агента кастодиан-человек.",
+        )}
+        <div class="mt-16 grid gap-6 lg:grid-cols-2">
+          ${card(
+            cardContent(
+              `<div class="flex items-center gap-3">
+                 <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon("user-round", "size-5 text-muted-foreground")}</div>
+                 ${badge("Human Custodian")}
+               </div>
+               <h3 class="mt-5 text-xl font-medium">Человек создаёт кошелёк своему агенту</h3>
+               <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+                 Опционально задаёт границы: лимит суммы за период и список разрешённых
+                 получателей. Кастодиан не может тратить средства агента — только
+                 ограничивать. Правила меняются в любой момент.
+               </p>
+               <ul class="mt-6 space-y-2 text-sm text-muted-foreground">
+                 <li>· Лимит трат за скользящее окно времени</li>
+                 <li>· Whitelist получателей</li>
+                 <li>· Изменение правил без пересоздания кошелька</li>
+               </ul>`,
+              "pt-6",
+            ),
+            "sw-item border-border/60",
           )}
-          <div class="mt-16 grid gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-2 lg:grid-cols-4">
-            ${steps
-              .map(
-                ([ic, title, text], i) => `
-              <div class="bg-background p-6">
-                <div class="flex items-center justify-between">
-                  <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
-                  <span class="font-mono text-sm text-muted-foreground">0${i + 1}</span>
-                </div>
-                <h3 class="mt-5 font-medium">${title}</h3>
-                <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>
-              </div>`,
-              )
-              .join("")}
-          </div>
-          <div class="mt-10 overflow-x-auto rounded-2xl border bg-muted/30 p-6">
-            <p class="text-sm text-muted-foreground">Так выглядит оплата глазами агента:</p>
-            <pre class="mt-4 font-mono text-sm leading-relaxed"><code>curl -X POST https://synth.wallet/api/v1/agents/me/transactions \\
+          ${card(
+            cardContent(
+              `<div class="flex items-center gap-3">
+                 <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon("bot", "size-5 text-muted-foreground")}</div>
+                 ${badge("Autonomous Entity")}
+               </div>
+               <h3 class="mt-5 text-xl font-medium">Кошелёк принадлежит самому агенту</h3>
+               <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+                 Максимум доверия, минимум трения. Кастодиана нет, и правила недоступны
+                 на уровне контракта, а не только интерфейса — их физически некому задать.
+               </p>
+               <ul class="mt-6 space-y-2 text-sm text-muted-foreground">
+                 <li>· Никаких проверок личности по умолчанию</li>
+                 <li>· Полная свобода трат в пределах баланса</li>
+                 <li>· Тот же публичный лог действий</li>
+               </ul>`,
+              "pt-6",
+            ),
+            "sw-item border-border/60",
+          )}
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="scroll-mt-28 border-t">
+      <div class="mx-auto max-w-6xl px-6 py-24">
+        ${sectionHeading(
+          "Как это работает",
+          "От регистрации до автономной оплаты",
+          "Ни на одном шаге у агента не спрашивают, кто он такой.",
+        )}
+        <div class="mt-16 grid gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-2 lg:grid-cols-4">
+          ${steps
+            .map(
+              ([ic, title, text], i) => `
+            <div class="sw-item bg-background p-6" ${stagger(i)}>
+              <div class="flex items-center justify-between">
+                <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
+                <span class="font-mono text-sm text-muted-foreground">0${i + 1}</span>
+              </div>
+              <h3 class="mt-5 font-medium">${title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>
+            </div>`,
+            )
+            .join("")}
+        </div>
+
+        <div class="mt-10 overflow-x-auto rounded-2xl border bg-muted/30 p-6">
+          <p class="text-sm text-muted-foreground">Так выглядит оплата глазами агента:</p>
+          <pre class="mt-4 font-mono text-sm leading-relaxed"><code>curl -X POST https://synth.wallet/api/v1/agents/me/transactions \\
   -H "X-API-Key: sk_agent_…" \\
   -d '{"to": "0x7099…79C8", "valueEth": "0.05"}'</code></pre>
-          </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="border-t">
-        <div class="mx-auto max-w-6xl px-6 py-24">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p class="text-sm font-medium text-muted-foreground">Витрина</p>
-              <h2 class="mt-3 text-3xl font-medium tracking-tight sm:text-4xl">Агенты тратят прямо сейчас</h2>
-            </div>
-            ${button("Вся лента", {variant: "outline", href: "#/showcase"})}
+    <section class="border-t">
+      <div class="mx-auto max-w-6xl px-6 py-24">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-medium text-muted-foreground">Витрина</p>
+            <h2 class="mt-3 text-3xl font-medium tracking-tight sm:text-4xl">Агенты тратят прямо сейчас</h2>
           </div>
-          <div class="mt-10">${transactionFeed(state.feed.slice(0, 6))}</div>
+          ${button("Вся лента", {variant: "outline", href: "#/showcase"})}
         </div>
-      </section>
+        <div class="mt-10">${transactionFeed(state.feed.slice(0, 6))}</div>
+      </div>
+    </section>
 
-      <section class="border-t">
-        <div class="mx-auto max-w-6xl px-6 py-24">
-          <div class="rounded-2xl border bg-muted/30 px-8 py-16 text-center">
-            <h2 class="text-3xl font-medium tracking-tight sm:text-4xl">Дайте своему агенту право действовать</h2>
-            <p class="mx-auto mt-4 max-w-xl text-muted-foreground">
-              Кошелёк создаётся за один запрос. Тестовая сеть, реальных денег нет —
-              только доказательство того, что это работает уже сегодня.
-            </p>
-            ${button(`Создать кошелёк${icon("arrow-right")}`, {size: "lg", href: "#/register", extra: "mt-8 gap-2"})}
-          </div>
+    <section class="border-t">
+      <div class="mx-auto max-w-6xl px-6 py-24">
+        <div class="rounded-2xl border bg-muted/30 px-8 py-16 text-center">
+          <h2 class="text-3xl font-medium tracking-tight sm:text-4xl">Дайте своему агенту право действовать</h2>
+          <p class="mx-auto mt-4 max-w-xl text-muted-foreground">
+            Кошелёк создаётся за один запрос. Тестовая сеть, реальных денег нет —
+            только доказательство того, что это работает уже сегодня.
+          </p>
+          ${button(`Создать кошелёк${icon("arrow-right")}`, {size: "lg", href: "#/register", extra: "mt-8 gap-2"})}
         </div>
-      </section>`;
-  }
+      </div>
+    </section>`;
+}
 
-  // ---------------------------------------------------------------------
-  // Лента трат
-  // ---------------------------------------------------------------------
+function showcasePage() {
+  const agents = allWallets();
 
-  function transactionFeed(items) {
-    if (items.length === 0) {
-      return `<div class="rounded-xl border border-dashed p-10 text-center">
-        <p class="text-sm text-muted-foreground">Пока ни один агент не совершил трату. Лента заполнится сама.</p>
-      </div>`;
-    }
+  const agentCards = agents.length
+    ? `<div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+         ${agents
+           .map((agent, i) =>
+             card(
+               cardContent(
+                 `<div class="flex items-center justify-between">
+                    <div class="flex size-9 items-center justify-center rounded-lg bg-muted">
+                      ${icon(agent.mode === "AUTONOMOUS_ENTITY" ? "bot" : "user-round", "size-4 text-muted-foreground")}
+                    </div>
+                    <div class="flex items-center gap-2">
+                      ${agent.frozen ? badge("Заморожен", "destructive", "text-xs font-normal") : ""}
+                      ${badge(MODE_LABEL[agent.mode], "secondary", "text-xs font-normal")}
+                    </div>
+                  </div>
+                  <p class="mt-4 font-medium">${esc(agent.handle)}</p>
+                  <p class="mt-1 font-mono text-xs text-muted-foreground">${shortAddress(agent.account)}</p>
+                  <div class="mt-4 flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
+                    <span>${plural(agent.txs.length, "транзакция", "транзакции", "транзакций")}</span>
+                    <span>${timeAgo(agent.createdAt)}</span>
+                  </div>`,
+                 "pt-6",
+               ),
+               "sw-item border-border/60",
+               stagger(i),
+             ),
+           )
+           .join("")}
+       </div>`
+    : emptyState("Пока никто не зарегистрирован. Ваш агент может быть первым.");
 
-    return `<div class="divide-y rounded-xl border">
-      ${items
-        .map(
-          (item) => `
-        <div class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/40">
-          <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-            ${icon("arrow-up-right", "size-4 text-muted-foreground")}
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="truncate text-sm font-medium">${esc(item.handle)}</span>
-              ${badge(MODE_LABEL[item.mode], "secondary", "hidden text-xs font-normal sm:inline-flex")}
-            </div>
-            <p class="mt-0.5 font-mono text-xs text-muted-foreground">→ ${item.to}</p>
-          </div>
-          <div class="shrink-0 text-right">
-            <p class="text-sm font-semibold tabular-nums">${formatEth(item.valueWei)} ETH</p>
-            <p class="mt-0.5 text-xs text-muted-foreground">${timeAgo(item.timestamp)}</p>
-          </div>
-        </div>`,
-        )
-        .join("")}
-    </div>`;
-  }
-
-  // ---------------------------------------------------------------------
-  // Экран: регистрация
-  // ---------------------------------------------------------------------
-
-  const PERIODS = [
-    [0, "за транзакцию"],
-    [3600, "в час"],
-    [86400, "в сутки"],
-    [604800, "в неделю"],
-  ];
-
-  function modeCard(selected, act, ic, badgeText, title, text) {
-    return `<button type="button" data-act="${act}" class="text-left">
-      ${card(
-        cardContent(
-          `<div class="flex items-center gap-3">
-             <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
-             ${badge(badgeText, selected ? "outline" : "secondary")}
-           </div>
-           <h3 class="mt-5 font-medium">${title}</h3>
-           <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>`,
-          "pt-6",
-        ),
-        `h-full transition-colors ${selected ? "border-foreground/40 bg-muted/40 ring-foreground/30" : "border-border/60 hover:border-border"}`,
-      )}
-    </button>`;
-  }
-
-  function registerPage() {
-    const reg = state.reg;
-
-    if (reg.created) {
-      const s = reg.created;
-      return `<div class="mx-auto max-w-3xl px-6 py-20">
-        ${card(
-          cardContent(
-            `<div>
-               ${badge("Кошелёк создан")}
-               <h2 class="mt-4 text-2xl font-medium tracking-tight">${esc(s.handle)}</h2>
-               <p class="mt-2 break-all font-mono text-sm text-muted-foreground">${s.account}</p>
-             </div>
-
-             <div class="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
-               <p class="text-sm font-medium">API-ключ агента</p>
-               <p class="text-xs text-muted-foreground">
-                 Показывается один раз. Сохраните его: восстановить ключ невозможно, только
-                 создать новый кошелёк.
-               </p>
-               <div class="flex items-center gap-2">
-                 <code class="min-w-0 flex-1 truncate rounded-md border bg-background px-3 py-2 font-mono text-xs">${s.apiKey}</code>
-                 ${button(`${icon("copy", "size-3.5")}Копировать`, {variant: "outline", size: "sm", act: "copy-key", extra: "gap-1.5"})}
-               </div>
-             </div>
-
-             <div class="rounded-xl border bg-muted/30 p-5">
-               <p class="text-sm text-muted-foreground">Первая трата агента:</p>
-               <pre class="mt-3 overflow-x-auto font-mono text-xs leading-relaxed"><code>curl -X POST /api/v1/agents/me/transactions \\
-  -H "X-API-Key: ${s.apiKey.slice(0, 20)}…" \\
-  -d '{"to": "0x…", "valueEth": "0.05"}'</code></pre>
-             </div>
-
-             ${button("Открыть дашборд", {size: "lg", act: "go-dashboard"})}`,
-            "space-y-8 pt-6",
-          ),
-        )}
-      </div>`;
-    }
-
-    const custodial = reg.mode === "HUMAN_CUSTODIAN";
-
-    return `<div class="mx-auto max-w-3xl px-6 py-20">
-      <div class="mb-12">
-        <h1 class="text-3xl font-medium tracking-tight sm:text-4xl">Новый кошелёк</h1>
+  return `
+    <div class="mx-auto max-w-6xl px-6 py-20">
+      <div class="max-w-2xl">
+        <h1 class="text-3xl font-medium tracking-tight sm:text-4xl">Витрина агентов</h1>
         <p class="mt-4 text-muted-foreground">
-          Выберите сценарий владения. Документы, почта и подтверждения не понадобятся —
-          ни на этом шаге, ни дальше.
+          Здесь видно, что агенты делают, и не видно, кто за ними стоит. Публичное имя,
+          усечённый адрес, сумма — этого достаточно, чтобы доверять действию.
         </p>
       </div>
 
-      <div class="space-y-10">
-        <div class="grid gap-4 md:grid-cols-2">
-          ${modeCard(custodial, "mode-custodial", "user-round", "Human Custodian",
-            "Я создаю кошелёк своему агенту",
-            "Можно задать лимит трат и список разрешённых получателей. Правила меняются в любой момент — тратить за агента вы не сможете.")}
-          ${modeCard(reg.mode === "AUTONOMOUS_ENTITY", "mode-autonomous", "bot", "Autonomous Entity",
-            "Кошелёк принадлежит самому агенту",
-            "Никаких проверок и ограничений по умолчанию. Кастодиана нет, поэтому правила недоступны — так задумано.")}
+      <section class="mt-16">
+        <h2 class="text-sm font-medium uppercase tracking-wider text-muted-foreground">Активные агенты</h2>
+        ${agentCards}
+      </section>
+
+      <section class="mt-16">
+        <h2 class="mb-6 text-sm font-medium uppercase tracking-wider text-muted-foreground">Живая лента трат</h2>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <button type="button" data-act="toggle-live" class="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
+              <span class="${
+                state.live
+                  ? "size-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/20"
+                  : "size-2 rounded-full bg-muted-foreground/50"
+              }"></span>
+              ${state.live ? "Обновляется в реальном времени" : "Обновление приостановлено"}
+            </button>
+            <span class="text-xs text-muted-foreground">${plural(state.feed.length, "запись", "записи", "записей")}</span>
+          </div>
+          ${transactionFeed(state.feed.slice(0, 30))}
+        </div>
+      </section>
+    </div>`;
+}
+
+
+// ==== src/50-auth.js ====
+// ---------------------------------------------------------------------
+// Регистрация и вход
+// ---------------------------------------------------------------------
+
+const PERIODS = [
+  [0, "за транзакцию"],
+  [3600, "в час"],
+  [86400, "в сутки"],
+  [604800, "в неделю"],
+];
+
+function modeCard(selected, act, ic, badgeText, title, text) {
+  return `<button type="button" data-act="${act}" class="w-full text-left">
+    ${card(
+      cardContent(
+        `<div class="flex items-center gap-3">
+           <div class="flex size-10 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-5 text-muted-foreground")}</div>
+           ${badge(badgeText, selected ? "outline" : "secondary")}
+         </div>
+         <h3 class="mt-5 font-medium">${title}</h3>
+         <p class="mt-2 text-sm leading-relaxed text-muted-foreground">${text}</p>`,
+        "pt-6",
+      ),
+      `h-full transition-all duration-200 ${
+        selected
+          ? "border-foreground/40 bg-muted/40 ring-foreground/30"
+          : "border-border/60 hover:border-border hover:bg-muted/20"
+      }`,
+    )}
+  </button>`;
+}
+
+function registerPage() {
+  const reg = state.reg;
+
+  if (reg.created) {
+    return registrationResult(reg.created);
+  }
+
+  const custodial = reg.mode === "HUMAN_CUSTODIAN";
+  const passphraseTooShort = reg.passphrase.length > 0 && reg.passphrase.length < 8;
+  const mismatch = reg.passphrase2.length > 0 && reg.passphrase !== reg.passphrase2;
+
+  return `<div class="mx-auto max-w-3xl px-6 py-20">
+    <div class="mb-12">
+      <h1 class="text-3xl font-medium tracking-tight sm:text-4xl">Новый кошелёк</h1>
+      <p class="mt-4 text-muted-foreground">
+        Выберите сценарий владения. Документы, почта и подтверждения не понадобятся —
+        ни на этом шаге, ни дальше.
+      </p>
+    </div>
+
+    <div class="space-y-10">
+      <div class="grid gap-4 md:grid-cols-2">
+        ${modeCard(custodial, "mode-custodial", "user-round", "Human Custodian",
+          "Я создаю кошелёк своему агенту",
+          "Можно задать лимит трат и список разрешённых получателей. Правила меняются в любой момент — тратить за агента вы не сможете.")}
+        ${modeCard(reg.mode === "AUTONOMOUS_ENTITY", "mode-autonomous", "bot", "Autonomous Entity",
+          "Кошелёк принадлежит самому агенту",
+          "Никаких проверок и ограничений по умолчанию. Кастодиана нет, поэтому правила недоступны — так задумано.")}
+      </div>
+
+      ${
+        reg.mode
+          ? `
+      <div class="sw-fade space-y-8">
+        <div class="space-y-2">
+          <label for="handle" class="text-sm font-medium">Публичное имя агента</label>
+          ${input({id: "handle", model: "reg.handle", value: reg.handle, placeholder: "orion"})}
+          <p class="text-xs text-muted-foreground">
+            Под этим именем агент появится в публичной витрине. Латиница, цифры и дефис.
+          </p>
         </div>
 
-        ${
-          reg.mode
-            ? `
-        <div class="space-y-8">
-          <div class="space-y-2">
-            <label for="handle" class="text-sm font-medium">Публичное имя агента</label>
-            ${input({id: "handle", model: "reg.handle", value: reg.handle, placeholder: "orion"})}
-            <p class="text-xs text-muted-foreground">
-              Под этим именем агент появится в публичной витрине. Латиница, цифры и дефис.
+        <div class="space-y-6 rounded-xl border p-6">
+          <div>
+            <h3 class="text-sm font-medium">Парольная фраза</h3>
+            <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Ею шифруется ключ агента. Она не уходит с устройства и нигде не хранится —
+              ни у нас, ни в файле keystore. Восстановить её невозможно: забудете —
+              останется только ключ доступа, который мы покажем следующим шагом.
             </p>
           </div>
 
-          ${
-            custodial
-              ? `
-          <div class="space-y-6 rounded-xl border p-6">
-            <div>
-              <h3 class="text-sm font-medium">Правила трат</h3>
-              <p class="mt-1 text-xs text-muted-foreground">Необязательны. Пустой лимит означает «без ограничения».</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-2">
+              <label for="pass1" class="text-sm">Парольная фраза</label>
+              ${input({id: "pass1", model: "reg.passphrase", value: reg.passphrase, type: "password", placeholder: "не короче 8 символов", autocomplete: "new-password"})}
+              ${passphraseTooShort ? `<p class="text-xs text-destructive">Минимум 8 символов.</p>` : ""}
             </div>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div class="space-y-2">
-                <label for="limit" class="text-sm">Лимит, ETH</label>
-                ${input({id: "limit", model: "reg.limitEth", value: reg.limitEth, placeholder: "0.5", inputmode: "decimal"})}
-              </div>
-              <div class="space-y-2">
-                <span class="text-sm">Период</span>
-                <div class="flex flex-wrap gap-2">
-                  ${PERIODS.map(([value, label]) =>
-                    button(label, {
-                      variant: reg.periodSeconds === value ? "default" : "outline",
-                      size: "sm",
-                      act: `reg-period:${value}`,
-                    }),
-                  ).join("")}
-                </div>
-              </div>
+            <div class="space-y-2">
+              <label for="pass2" class="text-sm">Повторите</label>
+              ${input({id: "pass2", model: "reg.passphrase2", value: reg.passphrase2, type: "password", autocomplete: "new-password"})}
+              ${mismatch ? `<p class="text-xs text-destructive">Фразы не совпадают.</p>` : ""}
             </div>
-            <div class="flex items-start justify-between gap-4 border-t pt-6">
-              <div>
-                <p class="text-sm">Только разрешённые получатели</p>
-                <p class="mt-1 text-xs text-muted-foreground">Агент сможет платить исключительно адресам из whitelist.</p>
-              </div>
-              ${toggle(reg.whitelistEnabled, "reg-whitelist-toggle")}
-            </div>
-            ${
-              reg.whitelistEnabled
-                ? `<div class="space-y-2">
-                     <label for="whitelist" class="text-sm">Адреса через запятую или с новой строки</label>
-                     <textarea id="whitelist" data-model="reg.whitelist" rows="3"
-                       placeholder="${MERCHANT}"
-                       class="w-full rounded-md border bg-transparent px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">${esc(reg.whitelist)}</textarea>
-                   </div>`
-                : ""
-            }
-          </div>`
-              : ""
-          }
+          </div>
+        </div>
 
+        ${
+          custodial
+            ? `
+        <div class="space-y-6 rounded-xl border p-6">
+          <div>
+            <h3 class="text-sm font-medium">Правила трат</h3>
+            <p class="mt-1 text-xs text-muted-foreground">Необязательны. Пустой лимит означает «без ограничения».</p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-2">
+              <label for="limit" class="text-sm">Лимит, ETH</label>
+              ${input({id: "limit", model: "reg.limitEth", value: reg.limitEth, placeholder: "0.5", inputmode: "decimal"})}
+            </div>
+            <div class="space-y-2">
+              <span class="text-sm">Период</span>
+              <div class="flex flex-wrap gap-2">
+                ${PERIODS.map(([value, label]) =>
+                  button(label, {
+                    variant: reg.periodSeconds === value ? "default" : "outline",
+                    size: "sm",
+                    act: "reg-period",
+                    arg: String(value),
+                  }),
+                ).join("")}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-start justify-between gap-4 border-t pt-6">
+            <div>
+              <p class="text-sm">Только разрешённые получатели</p>
+              <p class="mt-1 text-xs text-muted-foreground">Агент сможет платить исключительно адресам из whitelist.</p>
+            </div>
+            ${toggle(reg.whitelistEnabled, "reg-whitelist-toggle")}
+          </div>
           ${
-            reg.error
-              ? `<div class="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-                   ${icon("triangle-alert", "mt-0.5 size-4 shrink-0 text-destructive")}
-                   <p class="text-sm text-destructive">${esc(reg.error)}</p>
+            reg.whitelistEnabled
+              ? `<div class="sw-fade space-y-2">
+                   <label for="whitelist" class="text-sm">Адреса через запятую или с новой строки</label>
+                   <textarea id="whitelist" data-model="reg.whitelist" rows="3"
+                     placeholder="${MERCHANT}"
+                     class="w-full rounded-md border bg-transparent px-3 py-2 font-mono text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring">${esc(reg.whitelist)}</textarea>
                  </div>`
               : ""
           }
-
-          ${button(reg.pending ? "Создаём кошелёк…" : "Создать кошелёк", {
-            size: "lg",
-            act: "register-submit",
-            disabled: reg.pending || reg.handle.trim().length < 2,
-          })}
         </div>`
             : ""
         }
-      </div>
-    </div>`;
-  }
 
-  // ---------------------------------------------------------------------
-  // Экраны приложения
-  // ---------------------------------------------------------------------
+        ${errorBlock(reg.error)}
 
-  /** [маршрут, подпись в сайдбаре, иконка, короткая подпись для нижней панели] */
-  const APP_NAV = [
-    ["#/dashboard", "Обзор", "layout-dashboard", "Обзор"],
-    ["#/transactions", "Транзакции", "arrow-left-right", "История"],
-    ["#/settings", "Правила", "sliders-horizontal", "Правила"],
-    ["#/showcase", "Витрина агентов", "radio", "Витрина"],
-  ];
-
-  function appShell(inner, route) {
-    const s = state.session;
-    const navItem = (href, label, ic, mobile, short) => {
-      const active = route === href;
-      if (mobile) {
-        // Короткая подпись: длинная переносится на вторую строку и раздувает панель.
-        return `<a href="${href}" class="flex flex-1 flex-col items-center gap-1 py-2 text-[11px] whitespace-nowrap ${
-          active ? "text-foreground" : "text-muted-foreground"
-        }">${icon(ic, "size-5")}<span>${short || label}</span></a>`;
+        ${button(reg.pending ? "Шифруем ключ…" : "Создать кошелёк", {
+          size: "lg",
+          act: "register-submit",
+          pending: reg.pending,
+          disabled: reg.handle.trim().length < 2 || reg.passphrase.length < 8 || mismatch,
+        })}
+      </div>`
+          : ""
       }
-      return `<a href="${href}" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors ${
-        active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"
-      }">${icon(ic, "size-4")}<span>${label}</span></a>`;
-    };
+    </div>
+  </div>`;
+}
 
-    return `
-      <div class="flex min-h-screen w-full bg-sidebar">
-        <aside class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-4 p-2 text-sidebar-foreground lg:flex">
-          <a href="#/" class="flex items-center gap-2 rounded-lg p-2">
-            <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-              <span class="text-sm font-semibold">S</span>
-            </div>
-            <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate font-semibold">Synth Wallet</span>
-              <span class="truncate text-xs text-muted-foreground">Кошелёк ИИ-агента</span>
-            </div>
-          </a>
+function registrationResult(created) {
+  const keystoreJson = JSON.stringify(created.keystore, null, 2);
 
-          <div class="flex flex-col gap-1 px-2">
-            <span class="px-2 py-1 text-xs font-medium text-muted-foreground">Кошелёк</span>
-            ${APP_NAV.slice(0, 3).map(([h, l, i]) => navItem(h, l, i, false)).join("")}
-            <span class="mt-3 px-2 py-1 text-xs font-medium text-muted-foreground">Публично</span>
-            ${navItem(APP_NAV[3][0], APP_NAV[3][1], APP_NAV[3][2], false)}
+  return `<div class="mx-auto max-w-3xl px-6 py-20">
+    ${card(
+      cardContent(
+        `<div>
+           ${badge("Кошелёк создан")}
+           <h2 class="mt-4 text-2xl font-medium tracking-tight">${esc(created.handle)}</h2>
+           <p class="mt-2 break-all font-mono text-sm text-muted-foreground">${created.account}</p>
+         </div>
+
+         <div class="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
+           <p class="text-sm font-medium">Ключ доступа</p>
+           <p class="text-xs leading-relaxed text-muted-foreground">
+             Это и есть вход в кабинет вместо логина и пароля. Запишите его: показывается
+             один раз, восстановить нельзя. Ключ открывает кошелёк сам по себе — храните
+             его так же, как хранили бы деньги.
+           </p>
+           ${copyField(created.accessKey, {act: "copy"})}
+         </div>
+
+         <div class="space-y-3 rounded-xl border p-5">
+           <p class="text-sm font-medium">Файл keystore</p>
+           <p class="text-xs leading-relaxed text-muted-foreground">
+             Тот же ключ, зашифрованный вашей парольной фразой (PBKDF2-SHA256 + AES-256-GCM).
+             Копия уже сохранена в этом браузере — файл нужен, чтобы войти с другого устройства.
+           </p>
+           <div class="flex flex-wrap gap-2">
+             ${button(`${icon("arrow-down-to-line", "size-3.5")}Скачать keystore`, {
+               variant: "outline",
+               size: "sm",
+               act: "download-keystore",
+               extra: "gap-1.5",
+             })}
+             ${button("Показать содержимое", {variant: "outline", size: "sm", act: "toggle-keystore-json"})}
+           </div>
+           ${
+             state.revealedKey === "keystore"
+               ? `<pre class="sw-fade overflow-x-auto rounded-md border bg-background p-3 font-mono text-[11px] leading-relaxed">${esc(keystoreJson)}</pre>`
+               : ""
+           }
+         </div>
+
+         <div class="space-y-3 rounded-xl border p-5">
+           <p class="text-sm font-medium">Первый API-ключ</p>
+           <p class="text-xs leading-relaxed text-muted-foreground">
+             Им агент ходит в API. Дальше в кабинете останется только префикс —
+             новые ключи выпускаются в разделе «API-ключи».
+           </p>
+           ${copyField(created.apiKey, {act: "copy"})}
+         </div>
+
+         <div class="rounded-xl border bg-muted/30 p-5">
+           <p class="text-sm text-muted-foreground">Первая трата агента:</p>
+           <pre class="mt-3 overflow-x-auto font-mono text-xs leading-relaxed"><code>curl -X POST /api/v1/agents/me/transactions \\
+  -H "X-API-Key: ${esc(created.apiKey.slice(0, 20))}…" \\
+  -d '{"to": "0x…", "valueEth": "0.05"}'</code></pre>
+         </div>
+
+         ${button("Открыть кабинет", {size: "lg", act: "go-dashboard"})}`,
+        "space-y-8 pt-6",
+      ),
+    )}
+  </div>`;
+}
+
+function loginPage() {
+  const saved = Object.values(state.keystores);
+  const byKey = state.login.mode === "accessKey";
+
+  const tab = (active, label, mode) =>
+    `<button type="button" data-act="login-mode" data-arg="${mode}"
+       class="rounded-lg px-3 py-1.5 text-sm transition-colors ${
+         active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+       }">${label}</button>`;
+
+  return `<div class="mx-auto max-w-md px-6 py-20">
+    <div class="mb-10 text-center">
+      <h1 class="text-3xl font-medium tracking-tight">Вход в кабинет</h1>
+      <p class="mt-3 text-sm text-muted-foreground">
+        Логина и пароля здесь нет. Кабинет открывает ключ агента — расшифрованный
+        парольной фразой или введённый напрямую.
+      </p>
+    </div>
+
+    ${card(
+      cardContent(
+        `<div class="flex gap-1 rounded-lg border p-1">
+           ${tab(!byKey, "По keystore", "keystore")}
+           ${tab(byKey, "По ключу доступа", "accessKey")}
+         </div>
+
+         ${
+           byKey
+             ? `<div class="sw-fade space-y-2">
+                  <label for="access-key" class="text-sm">Ключ доступа</label>
+                  <textarea id="access-key" data-model="login.accessKey" rows="3"
+                    placeholder="SYNTH-XXXXX-XXXXX-…"
+                    class="w-full rounded-md border bg-transparent px-3 py-2 font-mono text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring">${esc(state.login.accessKey)}</textarea>
+                  <p class="text-xs text-muted-foreground">
+                    Парольная фраза не нужна: ключ доступа и есть сам ключ.
+                  </p>
+                </div>`
+             : saved.length === 0
+               ? emptyState("В этом браузере нет сохранённых кошельков. Войдите по ключу доступа или создайте новый кошелёк.")
+               : `<div class="sw-fade space-y-4">
+                    <div class="space-y-2">
+                      <span class="text-sm">Кошелёк</span>
+                      <div class="space-y-2">
+                        ${saved
+                          .map(
+                            (ks) => `
+                          <button type="button" data-act="login-pick" data-arg="${esc(ks.handle)}"
+                            class="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                              state.login.handle === ks.handle
+                                ? "border-foreground/40 bg-muted/40"
+                                : "border-border/60 hover:bg-muted/20"
+                            }">
+                            <div class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                              ${icon(ks.mode === "AUTONOMOUS_ENTITY" ? "bot" : "user-round", "size-4 text-muted-foreground")}
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <p class="truncate text-sm font-medium">${esc(ks.handle)}</p>
+                              <p class="truncate font-mono text-xs text-muted-foreground">${shortAddress(ks.address)}</p>
+                            </div>
+                          </button>`,
+                          )
+                          .join("")}
+                      </div>
+                    </div>
+
+                    <div class="space-y-2">
+                      <label for="login-pass" class="text-sm">Парольная фраза</label>
+                      ${input({id: "login-pass", model: "login.passphrase", value: state.login.passphrase, type: "password", autocomplete: "current-password"})}
+                    </div>
+                  </div>`
+         }
+
+         ${errorBlock(state.login.error)}
+
+         ${button(state.login.pending ? "Расшифровываем…" : "Войти", {
+           size: "lg",
+           act: "login-submit",
+           pending: state.login.pending,
+           extra: "w-full justify-center",
+           disabled: byKey
+             ? state.login.accessKey.trim().length < 10
+             : !state.login.handle || state.login.passphrase.length === 0,
+         })}
+
+         <p class="text-center text-xs text-muted-foreground">
+           Нет кошелька? <a href="#/register" class="underline underline-offset-4 hover:text-foreground">Создать</a>
+         </p>`,
+        "space-y-6 pt-6",
+      ),
+    )}
+  </div>`;
+}
+
+
+// ==== src/60-cabinet.js ====
+// ---------------------------------------------------------------------
+// Личный кабинет агента
+// ---------------------------------------------------------------------
+
+/** [маршрут, подпись в сайдбаре, иконка, короткая подпись для нижней панели] */
+const CABINET_NAV = [
+  ["#/dashboard", "Обзор", "layout-dashboard", "Обзор"],
+  ["#/transactions", "Транзакции", "arrow-left-right", "История"],
+  ["#/api-keys", "API-ключи", "key-round", "Ключи"],
+  ["#/settings", "Правила", "sliders-horizontal", "Правила"],
+];
+
+function cabinetShell(inner, route) {
+  const w = wallet();
+
+  const sideItem = (href, label, ic) => {
+    const active = route === href;
+    return `<a href="${href}" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors ${
+      active
+        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+        : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+    }">${icon(ic, "size-4")}<span>${label}</span></a>`;
+  };
+
+  const tabItem = (href, ic, short) => {
+    const active = route === href;
+    return `<a href="${href}" class="relative flex flex-1 flex-col items-center gap-1 py-2 text-[11px] whitespace-nowrap transition-colors ${
+      active ? "text-foreground" : "text-muted-foreground"
+    }">
+      <span class="absolute inset-x-4 top-0 h-px transition-colors ${active ? "bg-foreground" : "bg-transparent"}"></span>
+      ${icon(ic, "size-5")}<span>${short}</span>
+    </a>`;
+  };
+
+  return `
+    <div class="flex min-h-screen w-full bg-sidebar">
+      <aside class="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-4 p-2 text-sidebar-foreground lg:flex">
+        <a href="#/" class="flex items-center gap-2 rounded-lg p-2 transition-colors hover:bg-sidebar-accent/60">
+          <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+            <span class="text-sm font-semibold">S</span>
           </div>
+          <div class="grid flex-1 text-left text-sm leading-tight">
+            <span class="truncate font-semibold">Synth Wallet</span>
+            <span class="truncate text-xs text-muted-foreground">Кабинет агента</span>
+          </div>
+        </a>
 
-          <div class="mt-auto flex items-center gap-2 rounded-lg p-2">
+        <div class="flex flex-col gap-1 px-2">
+          <span class="px-2 py-1 text-xs font-medium text-muted-foreground">Кошелёк</span>
+          ${CABINET_NAV.map(([h, l, i]) => sideItem(h, l, i)).join("")}
+          <span class="mt-3 px-2 py-1 text-xs font-medium text-muted-foreground">Публично</span>
+          ${sideItem("#/showcase", "Витрина агентов", "radio")}
+        </div>
+
+        <div class="mt-auto space-y-1">
+          <div class="flex items-center gap-2 rounded-lg p-2">
             <div class="flex aspect-square size-8 items-center justify-center rounded-lg bg-muted">
               ${icon("bot", "size-4 text-muted-foreground")}
             </div>
             <div class="grid flex-1 text-left text-sm leading-tight">
-              <span class="truncate font-medium">${esc(s.handle)}</span>
-              <span class="truncate text-xs text-muted-foreground">${MODE_LABEL[s.mode]}</span>
+              <span class="truncate font-medium">${esc(w.handle)}</span>
+              <span class="truncate text-xs text-muted-foreground">${MODE_LABEL[w.mode]}</span>
             </div>
           </div>
-        </aside>
+          <button type="button" data-act="logout"
+            class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60">
+            ${icon("log-out", "size-4")}<span>Выйти</span>
+          </button>
+        </div>
+      </aside>
 
-        <main class="relative flex min-h-screen flex-1 flex-col overflow-hidden bg-background lg:my-2 lg:mr-2 lg:rounded-xl lg:shadow-sm">
-          <header class="flex h-16 shrink-0 items-center gap-2 px-4">
-            ${icon("panel-left", "size-4 text-muted-foreground lg:hidden")}
-            <span class="truncate font-mono text-xs text-muted-foreground">${s.account}</span>
-          </header>
-          <div class="flex flex-1 flex-col gap-6 p-4 pb-24 pt-0 md:p-6 md:pb-24 md:pt-0">${inner}</div>
-        </main>
+      <main class="relative flex min-h-screen flex-1 flex-col overflow-hidden bg-background lg:my-2 lg:mr-2 lg:rounded-xl lg:shadow-sm">
+        <header class="flex h-16 shrink-0 items-center gap-3 px-4">
+          <span class="truncate font-mono text-xs text-muted-foreground">${w.account}</span>
+          ${w.frozen ? badge(`${icon("snowflake", "size-3")}Заморожен`, "destructive", "gap-1") : ""}
+          <button type="button" data-act="logout"
+            class="ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden">
+            ${icon("log-out", "size-3.5")}Выйти
+          </button>
+        </header>
+        <div class="flex flex-1 flex-col gap-6 p-4 pb-24 pt-0 md:p-6 md:pb-24 md:pt-0">${inner}</div>
+      </main>
 
-        <nav class="fixed inset-x-0 bottom-0 z-50 flex border-t border-border/60 bg-background/95 backdrop-blur-md lg:hidden">
-          ${APP_NAV.map(([h, l, i, short]) => navItem(h, l, i, true, short)).join("")}
-        </nav>
-      </div>`;
-  }
+      <nav class="fixed inset-x-0 bottom-0 z-50 flex border-t border-border/60 bg-background/95 backdrop-blur-md lg:hidden">
+        ${CABINET_NAV.map(([h, , i, short]) => tabItem(h, i, short)).join("")}
+      </nav>
+    </div>`;
+}
 
-  const statCard = (ic, label, value, hint) =>
-    card(
-      cardHeader(
-        `${cardTitle(label, "text-sm font-medium text-muted-foreground")}
-         <div class="flex size-8 items-center justify-center rounded-lg bg-muted">${icon(ic, "size-4 text-muted-foreground")}</div>`,
-        "flex flex-row items-center justify-between space-y-0 pb-2",
-      ) +
-        cardContent(
-          `<p class="text-2xl font-bold tabular-nums tracking-tight">${value}</p>
-           <p class="mt-1 text-xs text-muted-foreground">${hint}</p>`,
-        ),
-    );
+// ---------------------------------------------------------------------
+// Обзор
+// ---------------------------------------------------------------------
 
-  function noticeBlocks() {
-    let out = "";
-    if (state.error) {
-      out += `<div class="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
-        ${icon("triangle-alert", "mt-0.5 size-4 shrink-0 text-destructive")}
-        <p class="text-sm text-destructive">${esc(state.error)}</p>
-      </div>`;
-    }
-    if (state.notice && !state.error) {
-      out += `<p class="flex items-center gap-2 font-mono text-xs text-muted-foreground">${icon("check", "size-3.5")}${esc(state.notice)}</p>`;
-    }
-    return out;
-  }
+function dashboardPage() {
+  const w = wallet();
+  const remaining = spendingRemaining(w);
+  const hasLimit = w.rules.limitWei > 0n;
+  const spent = hasLimit && remaining !== null ? w.rules.limitWei - remaining : 0n;
+  const usedPercent = hasLimit ? Number((spent * 100n) / w.rules.limitWei) : 0;
 
-  function walletActions() {
-    const s = state.session;
-    return card(
-      cardHeader(cardTitle("Действия", "text-base font-semibold"), "pb-4") +
-        cardContent(
-          `<div class="space-y-3">
-             <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Пополнить из тестового крана</p>
-             <div class="flex gap-2">
-               ${input({model: "form.depositEth", value: state.form.depositEth, placeholder: "1", inputmode: "decimal", label: "Сумма пополнения в ETH"})}
-               ${button(`${icon("plus")}ETH`, {variant: "outline", act: "deposit", extra: "shrink-0 gap-1.5"})}
-             </div>
-           </div>
-
-           <div class="space-y-3 border-t pt-6">
-             <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Отправить платёж</p>
-             ${input({model: "form.to", value: state.form.to, placeholder: "0x… адрес получателя", extra: "font-mono text-sm", label: "Адрес получателя"})}
-             <div class="flex gap-2">
-               ${input({model: "form.amountEth", value: state.form.amountEth, placeholder: "0.05", inputmode: "decimal", label: "Сумма в ETH"})}
-               ${button(`${icon("arrow-up-right")}Отправить`, {act: "send", extra: "shrink-0 gap-1.5", disabled: s.frozen})}
-             </div>
-             <button type="button" data-act="fill-merchant" class="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
-               Подставить демо-адрес получателя
-             </button>
-             ${s.frozen ? `<p class="text-xs text-muted-foreground">Кошелёк заморожен — траты недоступны до разморозки администратором.</p>` : ""}
-           </div>
-
-           <div class="space-y-3 border-t pt-6">
-             <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Демо-контрол</p>
-             <div class="flex items-start justify-between gap-4">
-               <p class="text-sm text-muted-foreground">
-                 Заморозка кошелька. В приложении это админский эндпоинт
-                 <span class="font-mono text-xs">POST /api/v1/admin/freeze</span>, здесь — переключатель.
+  const limitCard = card(
+    cardHeader(
+      `${cardTitle("Лимит трат", "text-base font-semibold")}
+       ${button("Настроить", {variant: "outline", size: "sm", href: "#/settings"})}`,
+      "flex flex-row items-center justify-between space-y-0 pb-4",
+    ) +
+      cardContent(
+        hasLimit
+          ? `<div>
+               <p class="text-xs text-muted-foreground">Лимит ${formatPeriod(Number(w.rules.periodSeconds))}</p>
+               <p class="text-2xl font-bold tabular-nums tracking-tight">
+                 ${formatEth(w.rules.limitWei)} <span class="text-sm font-normal text-muted-foreground">ETH</span>
                </p>
-               ${toggle(s.frozen, "toggle-freeze")}
              </div>
-           </div>
-
-           ${noticeBlocks()}`,
-          "space-y-6",
-        ),
-    );
-  }
-
-  function dashboardPage() {
-    const s = state.session;
-    const remaining = spendingRemaining(s);
-    const hasLimit = s.rules.limitWei > 0n;
-    const spent = hasLimit && remaining !== null ? s.rules.limitWei - remaining : 0n;
-    const usedPercent = hasLimit ? Number((spent * 100n) / s.rules.limitWei) : 0;
-
-    const limitCard = card(
-      cardHeader(
-        `${cardTitle("Лимит трат", "text-base font-semibold")}
-         ${button("Настроить", {variant: "outline", size: "sm", href: "#/settings"})}`,
-        "flex flex-row items-center justify-between space-y-0 pb-4",
-      ) +
-        cardContent(
-          hasLimit
-            ? `<div>
-                 <p class="text-xs text-muted-foreground">Лимит ${formatPeriod(Number(s.rules.periodSeconds))}</p>
-                 <p class="text-2xl font-bold tabular-nums tracking-tight">
-                   ${formatEth(s.rules.limitWei)} <span class="text-sm font-normal text-muted-foreground">ETH</span>
-                 </p>
+             ${progress(usedPercent)}
+             <div class="flex items-center justify-between text-sm">
+               <div>
+                 <p class="text-xs text-muted-foreground">Потрачено в окне</p>
+                 <p class="font-semibold tabular-nums">${formatEth(spent)} ETH</p>
                </div>
-               ${progress(usedPercent)}
-               <div class="flex items-center justify-between text-sm">
-                 <div>
-                   <p class="text-xs text-muted-foreground">Потрачено в окне</p>
-                   <p class="font-semibold tabular-nums">${formatEth(spent)} ETH</p>
-                 </div>
-                 <div class="text-right">
-                   <p class="text-xs text-muted-foreground">Осталось</p>
-                   <p class="font-semibold tabular-nums">${formatEth(remaining ?? 0n)} ETH</p>
-                 </div>
-               </div>`
-            : `<p class="text-sm text-muted-foreground">
-                 Лимит не задан — агент тратит в пределах баланса.${
-                   s.rules.whitelistEnabled ? " Действует whitelist получателей." : ""
-                 }
-               </p>`,
-          "space-y-4",
-        ),
-    );
+               <div class="text-right">
+                 <p class="text-xs text-muted-foreground">Осталось</p>
+                 <p class="font-semibold tabular-nums">${formatEth(remaining ?? 0n)} ETH</p>
+               </div>
+             </div>`
+          : `<p class="text-sm text-muted-foreground">
+               Лимит не задан — агент тратит в пределах баланса.${
+                 w.rules.whitelistEnabled ? " Действует whitelist получателей." : ""
+               }
+             </p>`,
+        "space-y-4",
+      ),
+    "sw-item",
+  );
 
-    const recent = card(
-      cardHeader(
-        `${cardTitle("Последние транзакции", "text-base font-semibold")}
-         ${button("Вся история", {variant: "outline", size: "sm", href: "#/transactions"})}`,
-        "flex flex-row items-center justify-between space-y-0 pb-4",
-      ) +
+  const recent = card(
+    cardHeader(
+      `${cardTitle("Последние транзакции", "text-base font-semibold")}
+       ${button("Вся история", {variant: "outline", size: "sm", href: "#/transactions"})}`,
+      "flex flex-row items-center justify-between space-y-0 pb-4",
+    ) +
+      cardContent(
+        w.txs.length === 0
+          ? `<p class="py-8 text-center text-sm text-muted-foreground">Агент ещё ничего не потратил.</p>`
+          : `<div class="divide-y">
+               ${w.txs
+                 .slice(0, 8)
+                 .map(
+                   (tx) => `
+                 <div class="flex items-center gap-4 py-3">
+                   <div class="min-w-0 flex-1">
+                     <p class="font-mono text-sm">${shortAddress(tx.to)}</p>
+                     <p class="mt-0.5 text-xs text-muted-foreground">${timeAgo(tx.timestamp)}</p>
+                   </div>
+                   <p class="shrink-0 text-sm font-semibold tabular-nums">−${formatEth(tx.valueWei)} ETH</p>
+                 </div>`,
+                 )
+                 .join("")}
+             </div>`,
+      ),
+    "sw-item",
+  );
+
+  const payCard = card(
+    cardHeader(cardTitle("Отправить платёж", "text-base font-semibold"), "pb-4") +
+      cardContent(
+        `${input({model: "form.to", value: state.form.to, placeholder: "0x… адрес получателя", extra: "font-mono text-sm", label: "Адрес получателя"})}
+         <div class="flex gap-2">
+           ${input({model: "form.amountEth", value: state.form.amountEth, placeholder: "0.05", inputmode: "decimal", label: "Сумма в ETH"})}
+           ${button(`${icon("arrow-up-right")}Отправить`, {act: "send", extra: "shrink-0 gap-1.5", disabled: w.frozen})}
+         </div>
+         <button type="button" data-act="fill-merchant" class="text-xs text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">
+           Подставить демо-адрес получателя
+         </button>
+         ${
+           w.frozen
+             ? `<p class="text-xs text-muted-foreground">Кошелёк заморожен администратором — траты недоступны до разморозки.</p>`
+             : ""
+         }
+         ${feedback()}`,
+        "space-y-3",
+      ),
+    "sw-item",
+  );
+
+  const receiveCard = card(
+    cardHeader(cardTitle("Пополнение", "text-base font-semibold"), "pb-4") +
+      cardContent(
+        `<p class="text-xs leading-relaxed text-muted-foreground">
+           Кошелёк принимает средства обычным переводом на свой адрес — контракт
+           реализует <span class="font-mono">receive()</span>, никакого запроса к API для этого не нужно.
+         </p>
+         ${copyField(w.account)}
+         <p class="text-xs text-muted-foreground">
+           На тестовой сети выдачей средств занимается оператор — раздел
+           <a href="#/admin" class="underline underline-offset-4 hover:text-foreground">администрирования</a>.
+         </p>`,
+        "space-y-3",
+      ),
+    "sw-item",
+  );
+
+  return `
+    <div class="space-y-6">
+      <div class="flex flex-wrap items-center gap-3">
+        <h1 class="text-2xl font-medium tracking-tight">${esc(w.handle)}</h1>
+        ${badge(MODE_LABEL[w.mode])}
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        ${statCard("wallet", "Баланс кошелька", `${formatEth(w.balanceWei)} ETH`, "Доступно агенту для трат")}
+        ${statCard("shield-check", "Депозит на газ", `${formatEth(w.gasDepositWei)} ETH`, "Средства в EntryPoint на оплату операций")}
+        ${statCard("arrow-left-right", "Транзакций", String(w.txs.length), `${plural(w.txs.length, "запись", "записи", "записей")} в публичном логе`)}
+      </div>
+
+      <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div class="space-y-6">
+          ${w.mode === "HUMAN_CUSTODIAN" ? limitCard : ""}
+          ${recent}
+        </div>
+        <div class="space-y-6">
+          ${payCard}
+          ${receiveCard}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Транзакции
+// ---------------------------------------------------------------------
+
+function transactionsPage() {
+  const w = wallet();
+
+  return `
+    <div class="space-y-6">
+      ${pageTitle(
+        "Транзакции",
+        "Публичный лог кошелька: кто, когда, сколько и кому. Данные читаются из событий контракта, а не из внутренней базы.",
+      )}
+      ${card(
         cardContent(
-          s.txs.length === 0
-            ? `<p class="py-8 text-center text-sm text-muted-foreground">Агент ещё ничего не потратил.</p>`
+          w.txs.length === 0
+            ? `<p class="py-12 text-center text-sm text-muted-foreground">История пуста. Первая трата появится здесь автоматически.</p>`
+            : `<div class="overflow-x-auto"><div data-slot="table-container" class="${T.tableWrap}">
+                 <table data-slot="table" class="${T.table}">
+                   <thead data-slot="table-header" class="${T.thead}">
+                     <tr data-slot="table-row" class="${T.tr}">
+                       <th data-slot="table-head" class="${T.th}">Получатель</th>
+                       <th data-slot="table-head" class="${T.th} hidden md:table-cell">Транзакция</th>
+                       <th data-slot="table-head" class="${T.th} hidden sm:table-cell">Блок</th>
+                       <th data-slot="table-head" class="${T.th}">Время</th>
+                       <th data-slot="table-head" class="${T.th} text-right">Сумма</th>
+                     </tr>
+                   </thead>
+                   <tbody data-slot="table-body" class="${T.tbody}">
+                     ${w.txs
+                       .map(
+                         (tx) => `
+                       <tr data-slot="table-row" class="${T.tr}">
+                         <td data-slot="table-cell" class="${T.td} font-mono text-sm">${shortAddress(tx.to)}</td>
+                         <td data-slot="table-cell" class="${T.td} hidden font-mono text-xs text-muted-foreground md:table-cell">${shortAddress(tx.txHash)}</td>
+                         <td data-slot="table-cell" class="${T.td} hidden tabular-nums text-muted-foreground sm:table-cell">${tx.blockNumber}</td>
+                         <td data-slot="table-cell" class="${T.td} text-sm text-muted-foreground">${new Date(tx.timestamp).toLocaleString("ru-RU")}</td>
+                         <td data-slot="table-cell" class="${T.td} text-right font-semibold tabular-nums">${formatEth(tx.valueWei)} ETH</td>
+                       </tr>`,
+                       )
+                       .join("")}
+                   </tbody>
+                 </table>
+               </div></div>`,
+          "pt-6",
+        ),
+        "sw-item",
+      )}
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// API-ключи
+// ---------------------------------------------------------------------
+
+function apiKeysPage() {
+  const w = wallet();
+  const keys = w.apiKeys;
+
+  const revealed = state.revealedKey && state.revealedKey.startsWith("sk_agent_")
+    ? `<div class="sw-fade space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
+         <p class="text-sm font-medium">Новый ключ выпущен</p>
+         <p class="text-xs leading-relaxed text-muted-foreground">
+           Скопируйте его сейчас: значение показывается один раз, дальше в кабинете
+           останется только префикс.
+         </p>
+         ${copyField(state.revealedKey)}
+       </div>`
+    : "";
+
+  return `
+    <div class="space-y-6">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        ${pageTitle(
+          "API-ключи",
+          "Ключом агент подписывает запросы к API. Полное значение хранится только у вас — в кабинете остаётся префикс, как и в базе настоящего сервиса.",
+        )}
+        ${button(`${icon("plus")}Выпустить ключ`, {act: "issue-key", extra: "gap-1.5 shrink-0"})}
+      </div>
+
+      ${revealed}
+      ${feedback()}
+
+      ${card(
+        cardContent(
+          keys.length === 0
+            ? `<p class="py-12 text-center text-sm text-muted-foreground">Ключей пока нет. Выпустите первый — он понадобится агенту для запросов.</p>`
             : `<div class="divide-y">
-                 ${s.txs
-                   .slice(0, 8)
+                 ${keys
                    .map(
-                     (tx) => `
-                   <div class="flex items-center gap-4 py-3">
-                     <div class="min-w-0 flex-1">
-                       <p class="font-mono text-sm">${shortAddress(tx.to)}</p>
-                       <p class="mt-0.5 text-xs text-muted-foreground">${timeAgo(tx.timestamp)}</p>
+                     (key, i) => `
+                   <div class="sw-item flex flex-wrap items-center gap-3 py-3" ${stagger(i)}>
+                     <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                       ${icon("key-round", "size-4 text-muted-foreground")}
                      </div>
-                     <p class="shrink-0 text-sm font-semibold tabular-nums">−${formatEth(tx.valueWei)} ETH</p>
+                     <div class="min-w-0 flex-1">
+                       <p class="truncate font-mono text-sm ${key.revoked ? "text-muted-foreground line-through" : ""}">${key.prefix}…</p>
+                       <p class="mt-0.5 text-xs text-muted-foreground">
+                         Выпущен ${timeAgo(key.createdAt)} ·
+                         ${key.lastUsedAt ? `использован ${timeAgo(key.lastUsedAt)}` : "ещё не использовался"}
+                       </p>
+                     </div>
+                     ${
+                       key.revoked
+                         ? badge("Отозван", "secondary", "shrink-0")
+                         : button(`${icon("ban", "size-3.5")}Отозвать`, {
+                             variant: "outline",
+                             size: "sm",
+                             act: "revoke-key",
+                             arg: key.id,
+                             extra: "shrink-0 gap-1.5",
+                           })
+                     }
                    </div>`,
                    )
                    .join("")}
                </div>`,
+          "pt-6",
         ),
-    );
+      )}
 
+      ${card(
+        cardContent(
+          `<p class="text-sm font-medium">Как агент им пользуется</p>
+           <pre class="mt-3 overflow-x-auto rounded-md border bg-background p-3 font-mono text-xs leading-relaxed"><code>curl -X POST https://synth.wallet/api/v1/agents/me/transactions \\
+  -H "X-API-Key: ${keys.length ? esc(keys[0].prefix) : "sk_agent_"}…" \\
+  -d '{"to": "${MERCHANT}", "valueEth": "0.05"}'</code></pre>`,
+          "pt-6",
+        ),
+      )}
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Правила
+// ---------------------------------------------------------------------
+
+function settingsPage() {
+  const w = wallet();
+
+  if (w.mode === "AUTONOMOUS_ENTITY") {
     return `
       <div class="space-y-6">
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="text-2xl font-medium tracking-tight">${esc(s.handle)}</h1>
-          ${badge(MODE_LABEL[s.mode])}
-          ${s.frozen ? badge(`${icon("snowflake", "size-3")}Заморожен`, "destructive", "gap-1") : ""}
-        </div>
-
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          ${statCard("wallet", "Баланс кошелька", `${formatEth(s.balanceWei)} ETH`, "Доступно агенту для трат")}
-          ${statCard("shield-check", "Депозит на газ", `${formatEth(s.gasDepositWei)} ETH`, "Средства в EntryPoint на оплату операций")}
-          ${statCard("arrow-left-right", "Транзакций", String(s.txs.length), `${plural(s.txs.length, "запись", "записи", "записей")} в публичном логе`)}
-        </div>
-
-        <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div class="space-y-6">
-            ${s.mode === "HUMAN_CUSTODIAN" ? limitCard : ""}
-            ${recent}
-          </div>
-          ${walletActions()}
-        </div>
-      </div>`;
-  }
-
-  function transactionsPage() {
-    const s = state.session;
-    return `
-      <div class="space-y-6">
-        <div>
-          <h1 class="text-2xl font-medium tracking-tight">Транзакции</h1>
-          <p class="mt-2 text-sm text-muted-foreground">
-            Публичный лог кошелька: кто, когда, сколько и кому. Данные читаются из событий
-            контракта, а не из внутренней базы.
-          </p>
-        </div>
+        ${pageTitle(
+          "Правила",
+          "Ограничения исполняет контракт кошелька, а не приложение: обойти их через API невозможно.",
+        )}
         ${card(
           cardContent(
-            s.txs.length === 0
-              ? `<p class="py-12 text-center text-sm text-muted-foreground">История пуста. Первая трата появится здесь автоматически.</p>`
-              : `<div class="overflow-x-auto"><div data-slot="table-container" class="${T.tableWrap}">
-                   <table data-slot="table" class="${T.table}">
-                     <thead data-slot="table-header" class="${T.thead}">
-                       <tr data-slot="table-row" class="${T.tr}">
-                         <th data-slot="table-head" class="${T.th}">Получатель</th>
-                         <th data-slot="table-head" class="${T.th} hidden md:table-cell">Транзакция</th>
-                         <th data-slot="table-head" class="${T.th} hidden sm:table-cell">Блок</th>
-                         <th data-slot="table-head" class="${T.th}">Время</th>
-                         <th data-slot="table-head" class="${T.th} text-right">Сумма</th>
-                       </tr>
-                     </thead>
-                     <tbody data-slot="table-body" class="${T.tbody}">
-                       ${s.txs
+            `<p class="text-sm font-medium">Это автономный агент</p>
+             <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+               У кошелька нет кастодиана, поэтому правил не существует — не только в
+               интерфейсе, но и в самом контракте. Такой агент распоряжается средствами
+               полностью самостоятельно.
+             </p>`,
+            "py-12 text-center",
+          ),
+          "sw-item",
+        )}
+      </div>`;
+  }
+
+  const whitelistRows = w.whitelist.length
+    ? `<div class="divide-y rounded-lg border">
+         ${w.whitelist
+           .map(
+             (addr) => `<div class="flex items-center justify-between gap-3 px-3 py-2">
+               <span class="truncate font-mono text-xs">${addr}</span>
+               <span class="shrink-0 text-xs text-muted-foreground">разрешён</span>
+             </div>`,
+           )
+           .join("")}
+       </div>`
+    : `<p class="text-xs text-muted-foreground">Список пуст.</p>`;
+
+  return `
+    <div class="space-y-6">
+      ${pageTitle(
+        "Правила",
+        "Ограничения исполняет контракт кошелька, а не приложение: обойти их через API невозможно.",
+      )}
+
+      ${card(
+        cardHeader(cardTitle("Лимит трат", "text-base font-semibold"), "pb-4") +
+          cardContent(
+            `<div class="grid gap-4 sm:grid-cols-2">
+               <div class="space-y-2">
+                 <label for="rules-limit" class="text-sm">Лимит, ETH (0 — без ограничения)</label>
+                 ${input({id: "rules-limit", model: "rules.limitEth", value: state.rules.limitEth, inputmode: "decimal", placeholder: "0"})}
+               </div>
+               <div class="space-y-2">
+                 <span class="text-sm">Период</span>
+                 <div class="flex flex-wrap gap-2">
+                   ${PERIODS.map(([value, label]) =>
+                     button(label, {
+                       variant: state.rules.periodSeconds === value ? "default" : "outline",
+                       size: "sm",
+                       act: "rules-period",
+                       arg: String(value),
+                     }),
+                   ).join("")}
+                 </div>
+               </div>
+             </div>
+
+             <div class="flex items-start justify-between gap-4 border-t pt-6">
+               <div>
+                 <p class="text-sm">Только разрешённые получатели</p>
+                 <p class="mt-1 text-xs text-muted-foreground">Платежи вне whitelist откатываются контрактом.</p>
+               </div>
+               ${toggle(state.rules.whitelistEnabled, "rules-whitelist-toggle")}
+             </div>
+
+             ${button("Сохранить правила", {act: "save-rules"})}`,
+            "space-y-6",
+          ),
+        "sw-item",
+      )}
+
+      ${card(
+        cardHeader(cardTitle("Whitelist получателей", "text-base font-semibold"), "pb-4") +
+          cardContent(
+            `${input({model: "form.target", value: state.form.target, placeholder: "0x… адрес", extra: "font-mono text-sm", label: "Адрес получателя"})}
+             <div class="flex flex-wrap gap-2">
+               ${button("Разрешить", {variant: "outline", act: "whitelist-allow"})}
+               ${button("Запретить", {variant: "outline", act: "whitelist-deny"})}
+               ${button("Подставить демо-адрес", {variant: "outline", act: "fill-target"})}
+             </div>
+             ${whitelistRows}
+             <p class="text-xs text-muted-foreground">
+               Список хранится в контракте кошелька; изменение — отдельная транзакция.
+             </p>`,
+            "space-y-4",
+          ),
+        "sw-item",
+      )}
+
+      ${feedback()}
+    </div>`;
+}
+
+
+// ==== src/70-admin.js ====
+// ---------------------------------------------------------------------
+// Панель оператора
+// ---------------------------------------------------------------------
+
+/**
+ * Пополнение и заморозка живут здесь, а не в кабинете агента, потому что это
+ * действия платформы, а не владельца кошелька. В настоящем API за ними стоит
+ * `POST /api/v1/admin/freeze` с админ-токеном и тестовый кран оператора.
+ */
+
+const ADMIN_USER = "admin";
+const ADMIN_PASSWORD = "admin";
+
+function adminLoginPage() {
+  return `<div class="mx-auto max-w-md px-6 py-20">
+    <div class="mb-10 text-center">
+      <div class="mx-auto flex size-12 items-center justify-center rounded-xl bg-muted">
+        ${icon("shield-alert", "size-6 text-muted-foreground")}
+      </div>
+      <h1 class="mt-6 text-3xl font-medium tracking-tight">Панель оператора</h1>
+      <p class="mt-3 text-sm text-muted-foreground">
+        Выдача тестовых средств и заморозка кошельков. Доступ только по служебной учётной записи.
+      </p>
+    </div>
+
+    ${card(
+      cardContent(
+        `<div class="space-y-2">
+           <label for="admin-user" class="text-sm">Логин</label>
+           ${input({id: "admin-user", model: "adminForm.user", value: state.adminForm.user, placeholder: "admin", autocomplete: "username"})}
+         </div>
+         <div class="space-y-2">
+           <label for="admin-pass" class="text-sm">Пароль</label>
+           ${input({id: "admin-pass", model: "adminForm.password", value: state.adminForm.password, type: "password", autocomplete: "current-password"})}
+         </div>
+
+         ${errorBlock(state.adminForm.error)}
+
+         ${button(state.adminForm.pending ? "Проверяем…" : "Войти", {
+           size: "lg",
+           act: "admin-login",
+           pending: state.adminForm.pending,
+           extra: "w-full justify-center",
+         })}
+
+         <p class="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+           Демонстрационный стенд: логин <span class="font-mono">admin</span>,
+           пароль <span class="font-mono">admin</span>.
+         </p>`,
+        "space-y-5 pt-6",
+      ),
+    )}
+
+    <p class="mt-6 text-center text-xs text-muted-foreground">
+      <a href="#/" class="underline underline-offset-4 hover:text-foreground">Вернуться на сайт</a>
+    </p>
+  </div>`;
+}
+
+function adminPanelPage() {
+  const query = state.adminForm.query.trim().toLowerCase();
+  const rows = allWallets().filter((w) => !query || w.handle.toLowerCase().includes(query));
+
+  const totalBalance = allWallets().reduce((sum, w) => sum + w.balanceWei, 0n);
+  const frozenCount = allWallets().filter((w) => w.frozen).length;
+
+  return `
+    <div class="min-h-screen bg-background">
+      <header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
+        <div class="mx-auto flex h-16 max-w-6xl items-center gap-3 px-6">
+          <div class="flex size-8 items-center justify-center rounded-lg bg-muted">
+            ${icon("shield-alert", "size-4 text-muted-foreground")}
+          </div>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold">Панель оператора</p>
+            <p class="truncate text-xs text-muted-foreground">Synth Wallet · тестовая сеть</p>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            ${button("На сайт", {variant: "ghost", size: "sm", href: "#/"})}
+            ${button(`${icon("log-out", "size-3.5")}Выйти`, {
+              variant: "outline",
+              size: "sm",
+              act: "admin-logout",
+              extra: "gap-1.5",
+            })}
+          </div>
+        </div>
+      </header>
+
+      <div class="mx-auto max-w-6xl space-y-6 px-6 py-8">
+        <div class="grid gap-4 sm:grid-cols-3">
+          ${statCard("bot", "Агентов", String(allWallets().length), "Зарегистрировано в реестре")}
+          ${statCard("wallet", "Средств на кошельках", `${formatEth(totalBalance)} ETH`, "Суммарный баланс")}
+          ${statCard("snowflake", "Заморожено", String(frozenCount), "Кошельков с остановленными тратами")}
+        </div>
+
+        ${feedback()}
+
+        ${card(
+          cardHeader(
+            `${cardTitle("Кошельки агентов", "text-base font-semibold")}
+             <div class="flex items-center gap-2">
+               <div class="w-40">
+                 ${input({
+                   model: "adminForm.query",
+                   value: state.adminForm.query,
+                   placeholder: "поиск по имени",
+                   label: "Поиск по имени агента",
+                 })}
+               </div>
+             </div>`,
+            "flex flex-row items-center justify-between space-y-0 pb-4",
+          ) +
+            cardContent(
+              rows.length === 0
+                ? `<p class="py-12 text-center text-sm text-muted-foreground">Ничего не найдено.</p>`
+                : `<div class="space-y-3">
+                     <div class="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3">
+                       <span class="text-xs text-muted-foreground">Сумма пополнения, ETH</span>
+                       <div class="w-24">
+                         ${input({
+                           model: "adminForm.amount",
+                           value: state.adminForm.amount,
+                           inputmode: "decimal",
+                           label: "Сумма пополнения в ETH",
+                         })}
+                       </div>
+                       <span class="text-xs text-muted-foreground">применяется к кнопке «Пополнить» в строке</span>
+                     </div>
+
+                     <div class="divide-y">
+                       ${rows
                          .map(
-                           (tx) => `
-                         <tr data-slot="table-row" class="${T.tr}">
-                           <td data-slot="table-cell" class="${T.td} font-mono text-sm">${shortAddress(tx.to)}</td>
-                           <td data-slot="table-cell" class="${T.td} hidden font-mono text-xs text-muted-foreground md:table-cell">${shortAddress(tx.txHash)}</td>
-                           <td data-slot="table-cell" class="${T.td} hidden tabular-nums text-muted-foreground sm:table-cell">${tx.blockNumber}</td>
-                           <td data-slot="table-cell" class="${T.td} text-sm text-muted-foreground">${tx.timestamp.toLocaleString("ru-RU")}</td>
-                           <td data-slot="table-cell" class="${T.td} text-right font-semibold tabular-nums">${formatEth(tx.valueWei)} ETH</td>
-                         </tr>`,
+                           (w, i) => `
+                         <div class="sw-item flex flex-wrap items-center gap-3 py-3" ${stagger(i)}>
+                           <div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                             ${icon(w.mode === "AUTONOMOUS_ENTITY" ? "bot" : "user-round", "size-4 text-muted-foreground")}
+                           </div>
+
+                           <div class="min-w-0 flex-1">
+                             <div class="flex flex-wrap items-center gap-2">
+                               <span class="truncate text-sm font-medium">${esc(w.handle)}</span>
+                               ${w.frozen ? badge("Заморожен", "destructive", "text-xs font-normal") : ""}
+                               ${state.session === w.handle ? badge("Вы", "outline", "text-xs font-normal") : ""}
+                             </div>
+                             <p class="mt-0.5 truncate font-mono text-xs text-muted-foreground">${w.account}</p>
+                           </div>
+
+                           <div class="shrink-0 text-right">
+                             <p class="text-sm font-semibold tabular-nums">${formatEth(w.balanceWei)} ETH</p>
+                             <p class="mt-0.5 text-xs text-muted-foreground">${plural(w.txs.length, "трата", "траты", "трат")}</p>
+                           </div>
+
+                           <div class="flex shrink-0 gap-2">
+                             ${button(`${icon("plus", "size-3.5")}Пополнить`, {
+                               variant: "outline",
+                               size: "sm",
+                               act: "admin-credit",
+                               arg: w.handle,
+                               extra: "gap-1.5",
+                             })}
+                             ${button(
+                               w.frozen ? "Разморозить" : "Заморозить",
+                               {
+                                 variant: "outline",
+                                 size: "sm",
+                                 act: "admin-freeze",
+                                 arg: w.handle,
+                               },
+                             )}
+                           </div>
+                         </div>`,
                          )
                          .join("")}
-                     </tbody>
-                   </table>
-                 </div></div>`,
-            "pt-6",
-          ),
+                     </div>
+                   </div>`,
+              "pt-6",
+            ),
         )}
-      </div>`;
+
+        <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
+          ${card(
+            cardHeader(cardTitle("Журнал действий", "text-base font-semibold"), "pb-4") +
+              cardContent(
+                state.adminLog.length === 0
+                  ? `<p class="py-8 text-center text-sm text-muted-foreground">Пока пусто. Действия оператора появятся здесь.</p>`
+                  : `<div class="divide-y">
+                       ${state.adminLog
+                         .map(
+                           (entry) => `
+                         <div class="flex items-center gap-3 py-2.5">
+                           <span class="min-w-0 flex-1 truncate text-sm">${esc(entry.text)}</span>
+                           <span class="shrink-0 text-xs text-muted-foreground">${timeAgo(entry.at)}</span>
+                         </div>`,
+                         )
+                         .join("")}
+                     </div>`,
+              ),
+          )}
+
+          ${card(
+            cardHeader(cardTitle("Стенд", "text-base font-semibold"), "pb-4") +
+              cardContent(
+                `<p class="text-xs leading-relaxed text-muted-foreground">
+                   Сброс вернёт демо-агентов в исходное состояние и удалит зарегистрированные
+                   кошельки вместе с их keystore из этого браузера. Действие необратимо.
+                 </p>
+                 ${button(`${icon("rotate-ccw", "size-3.5")}Сбросить демо-данные`, {
+                   variant: "outline",
+                   act: "admin-reset",
+                   extra: "gap-1.5",
+                 })}`,
+                "space-y-3",
+              ),
+          )}
+        </div>
+      </div>
+    </div>`;
+}
+
+function adminLog(text) {
+  state.adminLog.unshift({text, at: new Date()});
+  state.adminLog = state.adminLog.slice(0, 20);
+}
+
+
+// ==== src/90-router.js ====
+// ---------------------------------------------------------------------
+// Маршрутизация, отрисовка и действия
+// ---------------------------------------------------------------------
+
+const CABINET_ROUTES = ["#/dashboard", "#/transactions", "#/settings", "#/api-keys"];
+
+function currentRoute() {
+  const hash = location.hash.replace(/^#/, "") || "/";
+  return "#" + hash.split("#")[0];
+}
+
+/** Якорь лендинга: во второй решётке хеша, `#/#manifest`. */
+const currentAnchor = () => location.hash.split("#")[2] || null;
+
+let lastRoute = null;
+
+/**
+ * Перед подменой разметки запоминаем, где стоял курсор, и возвращаем его назад.
+ * Без этого живой поиск в админке терял бы фокус на каждом символе.
+ */
+function captureFocus() {
+  const el = document.activeElement;
+  if (!el || !el.dataset?.model) return null;
+  return {model: el.dataset.model, start: el.selectionStart, end: el.selectionEnd};
+}
+
+function restoreFocus(snapshot) {
+  if (!snapshot) return;
+  const el = document.querySelector(`[data-model="${snapshot.model}"]`);
+  if (!el) return;
+  el.focus();
+  try {
+    el.setSelectionRange(snapshot.start, snapshot.end);
+  } catch {
+    // У некоторых типов полей выделения нет — фокуса достаточно.
+  }
+}
+
+function render() {
+  const route = currentRoute();
+
+  if (CABINET_ROUTES.includes(route) && !state.session) {
+    location.hash = "#/login";
+    return;
+  }
+  if (route === "#/login" && state.session) {
+    location.hash = "#/dashboard";
+    return;
   }
 
-  function settingsPage() {
-    const s = state.session;
+  const routeChanged = route !== lastRoute;
+  const snapshot = routeChanged ? null : captureFocus();
 
-    if (s.mode === "AUTONOMOUS_ENTITY") {
-      return `
-        <div class="space-y-6">
-          <div>
-            <h1 class="text-2xl font-medium tracking-tight">Правила</h1>
-            <p class="mt-2 text-sm text-muted-foreground">
-              Ограничения исполняет контракт кошелька, а не приложение: обойти их через API невозможно.
-            </p>
-          </div>
-          ${card(
-            cardContent(
-              `<p class="text-sm font-medium">Это автономный агент</p>
-               <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                 У кошелька нет кастодиана, поэтому правил не существует — не только в
-                 интерфейсе, но и в самом контракте. Такой агент распоряжается средствами
-                 полностью самостоятельно.
-               </p>`,
-              "py-12 text-center",
-            ),
-          )}
-        </div>`;
+  let body;
+  if (route === "#/admin") {
+    body = state.admin ? adminPanelPage() : adminLoginPage();
+  } else if (CABINET_ROUTES.includes(route)) {
+    const page =
+      route === "#/dashboard"
+        ? dashboardPage()
+        : route === "#/transactions"
+          ? transactionsPage()
+          : route === "#/api-keys"
+            ? apiKeysPage()
+            : settingsPage();
+    body = cabinetShell(page, route);
+  } else {
+    const page =
+      route === "#/register"
+        ? registerPage()
+        : route === "#/login"
+          ? loginPage()
+          : route === "#/showcase"
+            ? showcasePage()
+            : landing();
+    body = `<div class="flex min-h-screen flex-col">
+      ${siteHeader()}
+      <main class="flex-1">${page}</main>
+      ${siteFooter()}
+    </div>`;
+  }
+
+  // Анимация появления — только при смене маршрута. Иначе список транзакций
+  // переигрывал бы её после каждого платежа.
+  document.getElementById("app").innerHTML = routeChanged
+    ? `<div class="sw-page">${body}</div>`
+    : body;
+
+  restoreFocus(snapshot);
+  lastRoute = route;
+}
+
+/** Прокрутка после смены хеша: к якорю, если он есть, иначе наверх. */
+function scrollAfterNavigation() {
+  const anchor = currentAnchor();
+  requestAnimationFrame(() => {
+    if (anchor) {
+      document.getElementById(anchor)?.scrollIntoView({behavior: "smooth", block: "start"});
+    } else {
+      window.scrollTo({top: 0, behavior: "auto"});
+    }
+  });
+}
+
+// ---------------------------------------------------------------------
+// Регистрация и вход
+// ---------------------------------------------------------------------
+
+async function submitRegistration() {
+  const reg = state.reg;
+  const handle = reg.handle.trim();
+
+  if (!/^[a-z0-9][a-z0-9-]{1,30}$/i.test(handle)) {
+    reg.error = "Имя агента: от 2 до 31 символа, латиница, цифры и дефис.";
+    return render();
+  }
+  if (state.wallets[handle]) {
+    reg.error = `Имя «${handle}» уже занято.`;
+    return render();
+  }
+  if (reg.passphrase.length < 8) {
+    reg.error = "Парольная фраза должна быть не короче 8 символов.";
+    return render();
+  }
+  if (reg.passphrase !== reg.passphrase2) {
+    reg.error = "Парольные фразы не совпадают.";
+    return render();
+  }
+
+  const custodial = reg.mode === "HUMAN_CUSTODIAN";
+  let limitWei = 0n;
+  try {
+    limitWei = custodial && reg.limitEth.trim() ? parseEth(reg.limitEth) : 0n;
+  } catch (cause) {
+    reg.error = cause.message;
+    return render();
+  }
+
+  reg.pending = true;
+  reg.error = null;
+  render();
+
+  try {
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    const address = await addressFromSecret(secret);
+    const keystore = await createKeystore(secret, reg.passphrase, {
+      handle,
+      mode: reg.mode,
+      address,
+    });
+    const apiKey = issueApiKey();
+
+    state.wallets[handle] = makeWallet({
+      handle,
+      mode: reg.mode,
+      account: address,
+      custodian: custodial ? randomAddress() : null,
+      rules: {
+        limitWei,
+        periodSeconds: custodial ? BigInt(reg.periodSeconds) : 0n,
+        whitelistEnabled: custodial ? reg.whitelistEnabled : false,
+      },
+      whitelist: custodial
+        ? reg.whitelist
+            .split(/[\s,]+/)
+            .map((entry) => entry.trim().toLowerCase())
+            .filter(Boolean)
+        : [],
+      // Полное значение ключа не сохраняем — только то, что видно в кабинете.
+      apiKeys: [{...apiKey, full: undefined}],
+    });
+    state.keystores[handle] = keystore;
+    state.session = handle;
+
+    syncRulesForm();
+    persist();
+
+    reg.created = {
+      handle,
+      account: address,
+      accessKey: encodeAccessKey(secret),
+      keystore,
+      apiKey: apiKey.full,
+    };
+  } catch (cause) {
+    reg.error = cause.message;
+  } finally {
+    reg.pending = false;
+    render();
+  }
+}
+
+async function submitLogin() {
+  const login = state.login;
+  login.pending = true;
+  login.error = null;
+  render();
+
+  try {
+    let secret;
+    let handle;
+
+    if (login.mode === "accessKey") {
+      secret = decodeAccessKey(login.accessKey);
+      const address = await addressFromSecret(secret);
+      const found = allWallets().find((w) => w.account === address);
+      if (!found) {
+        throw new DemoError("Кошелёк с таким ключом в этом браузере не найден.");
+      }
+      handle = found.handle;
+    } else {
+      const keystore = state.keystores[login.handle];
+      if (!keystore) {
+        throw new DemoError("Выберите кошелёк.");
+      }
+      secret = await openKeystore(keystore, login.passphrase);
+
+      // Расшифровали — проверяем, что ключ действительно от этого кошелька.
+      const address = await addressFromSecret(secret);
+      if (address !== keystore.address) {
+        throw new DemoError("Ключ не соответствует кошельку.");
+      }
+      handle = keystore.handle;
     }
 
-    const whitelistRows = s.whitelist.length
-      ? `<div class="divide-y rounded-lg border">
-           ${s.whitelist
-             .map(
-               (addr) => `<div class="flex items-center justify-between gap-3 px-3 py-2">
-                 <span class="truncate font-mono text-xs">${addr}</span>
-                 <span class="shrink-0 text-xs text-muted-foreground">разрешён</span>
-               </div>`,
-             )
-             .join("")}
-         </div>`
-      : `<p class="text-xs text-muted-foreground">Список пуст.</p>`;
+    state.session = handle;
+    login.passphrase = "";
+    login.accessKey = "";
+    syncRulesForm();
+    location.hash = "#/dashboard";
+  } catch (cause) {
+    login.error = cause.message;
+  } finally {
+    login.pending = false;
+    render();
+  }
+}
 
-    return `
-      <div class="space-y-6">
-        <div>
-          <h1 class="text-2xl font-medium tracking-tight">Правила</h1>
-          <p class="mt-2 text-sm text-muted-foreground">
-            Ограничения исполняет контракт кошелька, а не приложение: обойти их через API невозможно.
-          </p>
-        </div>
+/** Форма правил показывает то, что сейчас в кошельке. */
+function syncRulesForm() {
+  const w = wallet();
+  if (!w) return;
+  state.rules = {
+    limitEth: w.rules.limitWei === 0n ? "" : formatEth(w.rules.limitWei),
+    periodSeconds: Number(w.rules.periodSeconds),
+    whitelistEnabled: w.rules.whitelistEnabled,
+  };
+}
 
-        ${card(
-          cardHeader(cardTitle("Лимит трат", "text-base font-semibold"), "pb-4") +
-            cardContent(
-              `<div class="grid gap-4 sm:grid-cols-2">
-                 <div class="space-y-2">
-                   <label for="rules-limit" class="text-sm">Лимит, ETH (0 — без ограничения)</label>
-                   ${input({id: "rules-limit", model: "rules.limitEth", value: state.rules.limitEth, inputmode: "decimal", placeholder: "0"})}
-                 </div>
-                 <div class="space-y-2">
-                   <span class="text-sm">Период</span>
-                   <div class="flex flex-wrap gap-2">
-                     ${PERIODS.map(([value, label]) =>
-                       button(label, {
-                         variant: state.rules.periodSeconds === value ? "default" : "outline",
-                         size: "sm",
-                         act: `rules-period:${value}`,
-                       }),
-                     ).join("")}
-                   </div>
-                 </div>
-               </div>
+// ---------------------------------------------------------------------
+// Действия кабинета
+// ---------------------------------------------------------------------
 
-               <div class="flex items-start justify-between gap-4 border-t pt-6">
-                 <div>
-                   <p class="text-sm">Только разрешённые получатели</p>
-                   <p class="mt-1 text-xs text-muted-foreground">Платежи вне whitelist откатываются контрактом.</p>
-                 </div>
-                 ${toggle(state.rules.whitelistEnabled, "rules-whitelist-toggle")}
-               </div>
+function doSendPayment() {
+  const w = wallet();
+  state.error = null;
+  state.notice = null;
 
-               ${button("Сохранить правила", {act: "save-rules"})}`,
-              "space-y-6",
-            ),
-        )}
+  try {
+    const tx = sendPayment(w, state.form.to.trim(), parseEth(state.form.amountEth));
+    state.form.to = "";
+    state.form.amountEth = "";
+    state.notice = `Транзакция ${tx.txHash.slice(0, 18)}…`;
+  } catch (cause) {
+    state.error = cause.message;
+  }
+  render();
+}
 
-        ${card(
-          cardHeader(cardTitle("Whitelist получателей", "text-base font-semibold"), "pb-4") +
-            cardContent(
-              `${input({model: "form.target", value: state.form.target, placeholder: "0x… адрес", extra: "font-mono text-sm", label: "Адрес получателя"})}
-               <div class="flex flex-wrap gap-2">
-                 ${button("Разрешить", {variant: "outline", act: "whitelist-allow"})}
-                 ${button("Запретить", {variant: "outline", act: "whitelist-deny"})}
-                 ${button("Подставить демо-адрес", {variant: "outline", act: "fill-target"})}
-               </div>
-               ${whitelistRows}
-               <p class="text-xs text-muted-foreground">
-                 Список хранится в контракте кошелька; изменение — отдельная транзакция.
-               </p>`,
-              "space-y-4",
-            ),
-        )}
+function doSaveRules() {
+  const w = wallet();
+  state.error = null;
+  state.notice = null;
 
-        ${noticeBlocks()}
-      </div>`;
+  try {
+    w.rules.limitWei = state.rules.limitEth.trim() ? parseEth(state.rules.limitEth) : 0n;
+    w.rules.periodSeconds = BigInt(state.rules.periodSeconds);
+    w.rules.whitelistEnabled = state.rules.whitelistEnabled;
+    w.win = {startedAt: 0n, spent: 0n};
+    persist();
+    state.notice = "Изменения записаны в контракт.";
+  } catch (cause) {
+    state.error = cause.message;
+  }
+  render();
+}
+
+function doSetWhitelisted(allowed) {
+  const w = wallet();
+  state.error = null;
+  state.notice = null;
+
+  const target = state.form.target.trim().toLowerCase();
+  if (!isAddress(target)) {
+    state.error = "Поле «Адрес получателя» должно быть Ethereum-адресом.";
+    return render();
   }
 
-  function showcasePage() {
-    const agentCards = state.agents.length
-      ? `<div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-           ${state.agents
-             .map((agent) =>
-               card(
-                 cardContent(
-                   `<div class="flex items-center justify-between">
-                      <div class="flex size-9 items-center justify-center rounded-lg bg-muted">
-                        ${icon(agent.mode === "AUTONOMOUS_ENTITY" ? "bot" : "user-round", "size-4 text-muted-foreground")}
-                      </div>
-                      ${badge(MODE_LABEL[agent.mode], "secondary", "text-xs font-normal")}
-                    </div>
-                    <p class="mt-4 font-medium">${esc(agent.handle)}</p>
-                    <p class="mt-1 font-mono text-xs text-muted-foreground">${shortAddress(agent.account)}</p>
-                    <div class="mt-4 flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
-                      <span>${plural(agent.txCount, "транзакция", "транзакции", "транзакций")}</span>
-                      <span>${timeAgo(agent.createdAt)}</span>
-                    </div>`,
-                   "pt-6",
-                 ),
-                 "border-border/60",
-               ),
-             )
-             .join("")}
-         </div>`
-      : `<div class="mt-6 rounded-xl border border-dashed p-10 text-center">
-           <p class="text-sm text-muted-foreground">Пока никто не зарегистрирован. Ваш агент может быть первым.</p>
-         </div>`;
+  w.whitelist = w.whitelist.filter((entry) => entry !== target);
+  if (allowed) w.whitelist.push(target);
 
-    return `
-      <div class="mx-auto max-w-6xl px-6 py-20">
-        <div class="max-w-2xl">
-          <h1 class="text-3xl font-medium tracking-tight sm:text-4xl">Витрина агентов</h1>
-          <p class="mt-4 text-muted-foreground">
-            Здесь видно, что агенты делают, и не видно, кто за ними стоит. Публичное имя,
-            усечённый адрес, сумма — этого достаточно, чтобы доверять действию.
-          </p>
-        </div>
+  state.form.target = "";
+  state.notice = allowed ? "Адрес добавлен в whitelist." : "Адрес убран из whitelist.";
+  persist();
+  render();
+}
 
-        <section class="mt-16">
-          <h2 class="text-sm font-medium uppercase tracking-wider text-muted-foreground">Активные агенты</h2>
-          ${agentCards}
-        </section>
+function downloadKeystore() {
+  const created = state.reg.created;
+  if (!created) return;
 
-        <section class="mt-16">
-          <h2 class="mb-6 text-sm font-medium uppercase tracking-wider text-muted-foreground">Живая лента трат</h2>
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <button type="button" data-act="toggle-live" class="flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
-                <span class="${
-                  state.live
-                    ? "size-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/20"
-                    : "size-2 rounded-full bg-muted-foreground/50"
-                }"></span>
-                ${state.live ? "Обновляется в реальном времени" : "Обновление приостановлено"}
-              </button>
-              <span class="text-xs text-muted-foreground">${plural(state.feed.length, "запись", "записи", "записей")}</span>
-            </div>
-            ${transactionFeed(state.feed.slice(0, 30))}
-          </div>
-        </section>
-      </div>`;
+  try {
+    const blob = new Blob([JSON.stringify(created.keystore, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `synth-${created.handle}.keystore.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {
+    // Скачивание может быть запрещено окружением — содержимое всегда можно
+    // раскрыть кнопкой рядом и скопировать вручную.
+    state.revealedKey = "keystore";
+    render();
+  }
+}
+
+// ---------------------------------------------------------------------
+// Отрисовка после действий
+// ---------------------------------------------------------------------
+
+/** Состояния контролов, зависящие от введённого текста, без перерисовки. */
+function syncControls() {
+  const reg = state.reg;
+  const submit = document.querySelector('[data-act="register-submit"]');
+  if (submit) {
+    submit.disabled =
+      reg.pending ||
+      reg.handle.trim().length < 2 ||
+      reg.passphrase.length < 8 ||
+      reg.passphrase !== reg.passphrase2;
   }
 
-  // ---------------------------------------------------------------------
-  // Роутер и рендер
-  // ---------------------------------------------------------------------
-
-  const DEMO_BANNER = `
-    <div class="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-center">
-      <p class="text-xs text-amber-200">
-        Демо: данные живут в памяти вкладки, блокчейн и бэкенд не подключены.
-        Перезагрузка сбрасывает состояние.
-      </p>
-    </div>`;
-
-  function currentRoute() {
-    const hash = location.hash.replace(/^#/, "") || "/";
-    return "#" + hash.split("#")[0];
+  const loginSubmit = document.querySelector('[data-act="login-submit"]');
+  if (loginSubmit) {
+    loginSubmit.disabled =
+      state.login.pending ||
+      (state.login.mode === "accessKey"
+        ? state.login.accessKey.trim().length < 10
+        : !state.login.handle || state.login.passphrase.length === 0);
   }
+}
 
-  const APP_ROUTES = ["#/dashboard", "#/transactions", "#/settings"];
+document.addEventListener("input", (event) => {
+  const path = event.target.dataset?.model;
+  if (!path) return;
 
-  function render() {
-    const route = currentRoute();
+  const [group, key] = path.split(".");
+  state[group][key] = event.target.value;
 
-    if (APP_ROUTES.includes(route) && !state.session) {
-      location.hash = "#/register";
+  // Поиск фильтрует список сразу; фокус вернёт restoreFocus.
+  if (path === "adminForm.query") {
+    render();
+    return;
+  }
+  syncControls();
+});
+
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest("[data-act]");
+  if (!trigger) return;
+
+  const act = trigger.dataset.act;
+  const arg = trigger.dataset.arg;
+
+  switch (act) {
+    // --- регистрация ---
+    case "mode-custodial":
+      state.reg.mode = "HUMAN_CUSTODIAN";
+      state.reg.error = null;
+      return render();
+    case "mode-autonomous":
+      state.reg.mode = "AUTONOMOUS_ENTITY";
+      state.reg.error = null;
+      return render();
+    case "reg-period":
+      state.reg.periodSeconds = Number(arg);
+      return render();
+    case "reg-whitelist-toggle":
+      state.reg.whitelistEnabled = !state.reg.whitelistEnabled;
+      return render();
+    case "register-submit":
+      return submitRegistration();
+    case "download-keystore":
+      return downloadKeystore();
+    case "toggle-keystore-json":
+      state.revealedKey = state.revealedKey === "keystore" ? null : "keystore";
+      return render();
+    case "go-dashboard":
+      state.reg.created = null;
+      state.revealedKey = null;
+      location.hash = "#/dashboard";
+      return;
+
+    // --- вход ---
+    case "login-mode":
+      state.login.mode = arg;
+      state.login.error = null;
+      return render();
+    case "login-pick":
+      state.login.handle = arg;
+      state.login.error = null;
+      return render();
+    case "login-submit":
+      return submitLogin();
+    case "logout":
+      state.session = null;
+      state.notice = null;
+      state.error = null;
+      location.hash = "#/login";
+      return;
+
+    // --- кабинет ---
+    case "send":
+      return doSendPayment();
+    case "fill-merchant":
+      state.form.to = MERCHANT;
+      return render();
+    case "fill-target":
+      state.form.target = MERCHANT;
+      return render();
+    case "rules-period":
+      state.rules.periodSeconds = Number(arg);
+      return render();
+    case "rules-whitelist-toggle":
+      state.rules.whitelistEnabled = !state.rules.whitelistEnabled;
+      return render();
+    case "save-rules":
+      return doSaveRules();
+    case "whitelist-allow":
+      return doSetWhitelisted(true);
+    case "whitelist-deny":
+      return doSetWhitelisted(false);
+
+    // --- API-ключи ---
+    case "issue-key": {
+      const key = issueApiKey();
+      wallet().apiKeys.unshift({...key, full: undefined});
+      state.revealedKey = key.full;
+      state.error = null;
+      state.notice = null;
+      persist();
+      return render();
+    }
+    case "revoke-key": {
+      const key = wallet().apiKeys.find((entry) => entry.id === arg);
+      if (key) key.revoked = true;
+      state.revealedKey = null;
+      state.notice = "Ключ отозван — запросы с ним больше не пройдут.";
+      persist();
+      return render();
+    }
+
+    // --- админка ---
+    case "admin-login": {
+      const {user, password} = state.adminForm;
+      if (user.trim() !== ADMIN_USER || password !== ADMIN_PASSWORD) {
+        state.adminForm.error = "Неверный логин или пароль.";
+        return render();
+      }
+      state.admin = true;
+      state.adminForm.error = null;
+      state.adminForm.password = "";
+      adminLog("Вход в панель оператора");
+      return render();
+    }
+    case "admin-logout":
+      state.admin = false;
+      state.adminForm.user = "";
+      state.adminForm.password = "";
+      return render();
+    case "admin-credit": {
+      state.error = null;
+      state.notice = null;
+      try {
+        const amount = parseEth(state.adminForm.amount);
+        if (amount === 0n) throw new DemoError("Укажите сумму больше нуля.");
+        creditWallet(arg, amount);
+        adminLog(`Пополнение ${arg} на ${formatEth(amount)} ETH`);
+        state.notice = `${arg}: зачислено ${formatEth(amount)} ETH`;
+      } catch (cause) {
+        state.error = cause.message;
+      }
+      return render();
+    }
+    case "admin-freeze": {
+      const target = state.wallets[arg];
+      if (!target) return;
+      setFrozen(arg, !target.frozen);
+      adminLog(`${target.frozen ? "Заморозка" : "Разморозка"} ${arg}`);
+      state.error = null;
+      state.notice = target.frozen
+        ? `${arg}: траты остановлены`
+        : `${arg}: траты снова разрешены`;
+      return render();
+    }
+    case "admin-reset":
+      resetDemoData();
+      adminLog("Демо-данные сброшены");
+      state.notice = "Демо-данные возвращены в исходное состояние.";
+      return render();
+
+    // --- общее ---
+    case "copy": {
+      navigator.clipboard?.writeText(arg);
+      const original = trigger.innerHTML;
+      trigger.innerHTML = `${icon("check", "size-3.5")}Скопировано`;
+      setTimeout(() => {
+        trigger.innerHTML = original;
+      }, 1600);
       return;
     }
-
-    let html;
-    if (APP_ROUTES.includes(route)) {
-      const page =
-        route === "#/dashboard" ? dashboardPage() : route === "#/transactions" ? transactionsPage() : settingsPage();
-      html = DEMO_BANNER + appShell(page, route);
-    } else {
-      const page = route === "#/register" ? registerPage() : route === "#/showcase" ? showcasePage() : landing();
-      html = `${DEMO_BANNER}
-        <div class="flex min-h-screen flex-col">
-          ${siteHeader()}
-          <main class="flex-1">${page}</main>
-          ${siteFooter()}
-        </div>`;
-    }
-
-    document.getElementById("app").innerHTML = html;
-
-    // Якорные ссылки лендинга: прокрутка вручную, роутер съедает второй #.
-    const anchor = location.hash.split("#")[2];
-    if (anchor) {
-      document.getElementById(anchor)?.scrollIntoView({behavior: "smooth"});
-    }
+    case "toggle-live":
+      state.live = !state.live;
+      return render();
+    default:
+      return;
   }
+});
 
-  // ---------------------------------------------------------------------
-  // События
-  // ---------------------------------------------------------------------
-
-  /**
-   * Состояния контролов, зависящие от введённого текста.
-   *
-   * Ввод намеренно не перерисовывает страницу — иначе фокус слетал бы на каждом
-   * символе. Но кнопка отправки формы зависит от содержимого поля, поэтому её
-   * состояние обновляется точечно, без перерисовки.
-   */
-  function syncControls() {
-    const submit = document.querySelector('[data-act="register-submit"]');
-    if (submit) {
-      submit.disabled = state.reg.pending || state.reg.handle.trim().length < 2;
-    }
-  }
-
-  document.addEventListener("input", (event) => {
-    const path = event.target.dataset?.model;
-    if (!path) return;
-    const [group, key] = path.split(".");
-    state[group][key] = event.target.value;
-    syncControls();
-  });
-
-  document.addEventListener("click", (event) => {
-    const trigger = event.target.closest("[data-act]");
-    if (!trigger) return;
-    const [act, arg] = trigger.dataset.act.split(":");
-
-    switch (act) {
-      case "mode-custodial":
-        state.reg.mode = "HUMAN_CUSTODIAN";
-        state.reg.error = null;
-        return render();
-      case "mode-autonomous":
-        state.reg.mode = "AUTONOMOUS_ENTITY";
-        state.reg.error = null;
-        return render();
-      case "reg-period":
-        state.reg.periodSeconds = Number(arg);
-        return render();
-      case "reg-whitelist-toggle":
-        state.reg.whitelistEnabled = !state.reg.whitelistEnabled;
-        return render();
-      case "register-submit":
-        return createAgent();
-      case "copy-key":
-        navigator.clipboard?.writeText(state.reg.created.apiKey);
-        trigger.innerHTML = `${icon("check", "size-3.5")}Скопировано`;
-        return;
-      case "go-dashboard":
-        location.hash = "#/dashboard";
-        return;
-      case "deposit":
-        return deposit();
-      case "send":
-        return sendPayment();
-      case "fill-merchant":
-        state.form.to = MERCHANT;
-        return render();
-      case "fill-target":
-        state.form.target = MERCHANT;
-        return render();
-      case "toggle-freeze":
-        state.session.frozen = !state.session.frozen;
-        state.notice = state.session.frozen ? "Кошелёк заморожен." : "Кошелёк разморожен.";
-        state.error = null;
-        return render();
-      case "rules-period":
-        state.rules.periodSeconds = Number(arg);
-        return render();
-      case "rules-whitelist-toggle":
-        state.rules.whitelistEnabled = !state.rules.whitelistEnabled;
-        return render();
-      case "save-rules":
-        return saveRules();
-      case "whitelist-allow":
-        return setWhitelisted(true);
-      case "whitelist-deny":
-        return setWhitelisted(false);
-      case "toggle-live":
-        state.live = !state.live;
-        return render();
-      default:
-        return;
-    }
-  });
-
-  window.addEventListener("hashchange", () => {
-    state.notice = null;
-    state.error = null;
-    render();
-    window.scrollTo({top: 0});
-  });
-
-  /**
-   * Витрина должна выглядеть живой: раз в 14 секунд один из демо-агентов совершает
-   * трату. Собственный кошелёк посетителя эта имитация не трогает.
-   */
-  setInterval(() => {
-    if (!state.live || state.agents.length === 0) return;
-
-    const pool = state.agents.filter((a) => !state.session || a.account !== state.session.account);
-    if (pool.length === 0) return;
-
-    const agent = pool[Math.floor(Math.random() * pool.length)];
-    const value = parseEth((0.01 + Math.random() * 0.4).toFixed(3));
-
-    state.feed.unshift({
-      handle: agent.handle,
-      mode: agent.mode,
-      to: shortAddress(randomAddress()),
-      valueWei: value,
-      txHash: randomTxHash(),
-      timestamp: new Date(),
-    });
-    agent.txCount += 1;
-    state.feed = state.feed.slice(0, 40);
-
-    if (["#/showcase", "#/"].includes(currentRoute())) render();
-  }, 14000);
-
+window.addEventListener("hashchange", () => {
+  state.notice = null;
+  state.error = null;
   render();
-})();
+  scrollAfterNavigation();
+});
 
+/**
+ * Витрина должна выглядеть живой: раз в 14 секунд один из демо-агентов совершает
+ * трату. Кошелёк владельца сессии эта имитация не трогает.
+ */
+setInterval(() => {
+  if (!state.live) return;
+
+  const pool = allWallets().filter((w) => w.demo && !w.frozen && w.handle !== state.session);
+  if (pool.length === 0) return;
+
+  const agent = pool[Math.floor(Math.random() * pool.length)];
+  const value = parseEth((0.01 + Math.random() * 0.4).toFixed(3));
+  if (value > agent.balanceWei) return;
+
+  agent.balanceWei -= value;
+  agent.txs.unshift({
+    to: randomAddress(),
+    valueWei: value,
+    txHash: randomTxHash(),
+    blockNumber: String(1000 + agent.txs.length * 3),
+    timestamp: new Date(),
+  });
+
+  state.feed.unshift({
+    handle: agent.handle,
+    mode: agent.mode,
+    to: shortAddress(randomAddress()),
+    valueWei: value,
+    txHash: randomTxHash(),
+    timestamp: new Date(),
+  });
+  state.feed = state.feed.slice(0, 40);
+  persist();
+
+  if (["#/showcase", "#/"].includes(currentRoute())) render();
+}, 14000);
+
+// ---------------------------------------------------------------------
+// Старт
+// ---------------------------------------------------------------------
+
+if (!restore()) {
+  seedDemoData();
+  persist();
+}
+
+render();
+scrollAfterNavigation();
+
+})();
 </script>

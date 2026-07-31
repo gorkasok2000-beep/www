@@ -8,7 +8,7 @@
  *   2. demo/extra.css — правки, специфичные для одностраничного демо;
  *   3. demo/design-tokens.json — классы shadcn-примитивов и SVG иконок, снятые
  *      с работающего приложения (см. README, раздел про демо);
- *   4. demo/app.js — мок-стейт и рендер экранов.
+ *   4. demo/src/*.js — мок-стейт, экраны и роутер; склеиваются в один IIFE.
  *
  * Запуск:
  *   pnpm --filter web build     # сначала нужен .next с бандлом стилей
@@ -47,8 +47,17 @@ function tailwindCss() {
 }
 
 const tokens = readFileSync(join(here, "design-tokens.json"), "utf8");
-const app = readFileSync(join(here, "app.js"), "utf8");
 const extra = readFileSync(join(here, "extra.css"), "utf8");
+
+/**
+ * Модули склеиваются по имени файла в один IIFE: общие функции видны всем частям,
+ * а порядок задаётся числовым префиксом (00-format, 10-crypto, …, 90-router).
+ */
+const app = readdirSync(join(here, "src"))
+  .filter((name) => name.endsWith(".js"))
+  .sort()
+  .map((name) => `// ==== src/${name} ====\n` + readFileSync(join(here, "src", name), "utf8"))
+  .join("\n\n");
 
 // Обёртка артефакта подставляет свой <head>, но эти два мета-тега объявляем сами:
 // без charset кириллица превращается в мусор там, где Content-Type её не несёт,
@@ -64,13 +73,16 @@ ${extra}
 
 <!--
   Демонстрационная сборка прототипа Synth Wallet.
-  Сгенерировано demo/build.mjs — редактировать надо demo/app.js, а не этот файл.
+  Сгенерировано demo/build.mjs — редактировать надо demo/src/*.js, а не этот файл.
 -->
 <div id="app" class="dark"></div>
 
 <script>window.__SYNTH_TOKENS__ = ${tokens};</script>
 <script>
+(function () {
+"use strict";
 ${app}
+})();
 </script>
 `;
 

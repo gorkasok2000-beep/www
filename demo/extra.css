@@ -1,17 +1,25 @@
 /*
  * Дополнения к скомпилированному бандлу Tailwind.
  *
- * Приложение работает в принудительно тёмной теме (forcedTheme="dark" в
- * apps/web/src/app/layout.tsx), поэтому демо тоже фиксирует одну тему: токены из
- * блока .dark поднимаются на :root, а переключатель темы просмотрщика не должен
- * их перебивать — отсюда явные правила для обоих значений data-theme.
+ * Бандл собран из того, что использовало приложение, поэтому утилиты, нужные только
+ * демо, приходится дописывать руками — иначе класс есть, а стиля за ним нет.
+ * Список расхождений даёт `node demo/check-classes.mjs`.
  */
 
+/* --------------------------------------------------------------------------
+   Тема
+   -------------------------------------------------------------------------- */
+
+/*
+ * Приложение работает в принудительно тёмной теме (forcedTheme="dark" в
+ * apps/web/src/app/layout.tsx), поэтому демо тоже фиксирует одну тему, а
+ * переключатель темы просмотрщика не должен её перебивать.
+ */
 :root,
 :root[data-theme="dark"],
 :root[data-theme="light"] {
   color-scheme: dark;
-  background-color: var(--background, #0a0a0a);
+  background-color: #0a0a0a;
 }
 
 /* Значение из блока .dark бандла. На body его нельзя взять через var(--background):
@@ -22,17 +30,224 @@ body {
   color: #fafafa;
 }
 
-/* Класс dark на обёртке включает и токены, и dark:-варианты Tailwind
-   (@custom-variant dark (&:is(.dark *))). Здесь же задаём фон страницы: внутри
-   элемента с классом .dark переменные уже разрешаются в тёмные значения, поэтому
-   секции без собственного фона больше не просвечивают светлым. */
+/* Внутри элемента с классом .dark переменные уже разрешаются в тёмные значения. */
 #app {
   min-height: 100vh;
   background-color: var(--background);
   color: var(--foreground);
 }
 
-/* Демо не отключает анимации целиком, но уважает системную настройку. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* --------------------------------------------------------------------------
+   Утилиты, которых нет в бандле приложения
+   -------------------------------------------------------------------------- */
+
+.sticky {
+  position: sticky;
+}
+
+.mb-10 {
+  margin-bottom: calc(var(--spacing) * 10);
+}
+
+.text-\[11px\] {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* Отступ под липкой шапкой, чтобы якорь не уезжал под неё. */
+.scroll-mt-28 {
+  scroll-margin-top: calc(var(--spacing) * 28);
+}
+
+.h-screen {
+  height: 100vh;
+}
+
+.w-24 {
+  width: calc(var(--spacing) * 24);
+}
+
+.w-40 {
+  width: calc(var(--spacing) * 40);
+}
+
+.w-64 {
+  width: calc(var(--spacing) * 64);
+}
+
+.size-12 {
+  width: calc(var(--spacing) * 12);
+  height: calc(var(--spacing) * 12);
+}
+
+.py-2\.5 {
+  padding-block: calc(var(--spacing) * 2.5);
+}
+
+.pb-24 {
+  padding-bottom: calc(var(--spacing) * 24);
+}
+
+.inset-x-4 {
+  inset-inline: calc(var(--spacing) * 4);
+}
+
+.bg-background\/95 {
+  background-color: color-mix(in oklab, var(--background) 95%, transparent);
+}
+
+.hover\:bg-sidebar-accent\/60:hover {
+  background-color: color-mix(in oklab, var(--sidebar-accent) 60%, transparent);
+}
+
+.hover\:bg-muted\/20:hover {
+  background-color: color-mix(in oklab, var(--muted) 20%, transparent);
+}
+
+.underline {
+  text-decoration-line: underline;
+}
+
+/* Активный пункт бокового меню: токены есть, а утилит под них в бандле нет —
+   приложение красит сайдбар собственным компонентом. */
+.bg-sidebar-accent {
+  background-color: var(--sidebar-accent);
+}
+
+.text-sidebar-accent-foreground {
+  color: var(--sidebar-accent-foreground);
+}
+
+/* Тот же приём, что в бандле: отступ вешается на всех детей, кроме последнего. */
+:where(.space-y-1 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(var(--spacing) * var(--tw-space-y-reverse));
+  margin-block-end: calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)));
+}
+
+:where(.space-y-5 > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));
+  margin-block-end: calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)));
+}
+
+@media (width >= 40rem) {
+  .sm\:block {
+    display: block;
+  }
+}
+
+@media (width >= 48rem) {
+  .md\:hidden {
+    display: none;
+  }
+
+  .md\:pb-24 {
+    padding-bottom: calc(var(--spacing) * 24);
+  }
+}
+
+/* Раскладка кабинета: сайдбар от lg и «плавающая» рабочая область рядом с ним.
+   Ни одного из этих классов в бандле приложения нет — оно верстает сайдбар
+   собственным компонентом. */
+@media (width >= 64rem) {
+  .lg\:flex {
+    display: flex;
+  }
+
+  .lg\:hidden {
+    display: none;
+  }
+
+  .lg\:my-2 {
+    margin-block: calc(var(--spacing) * 2);
+  }
+
+  .lg\:mr-2 {
+    margin-right: calc(var(--spacing) * 2);
+  }
+
+  .lg\:rounded-xl {
+    border-radius: calc(var(--radius) * 1.4);
+  }
+
+  .lg\:shadow-sm {
+    box-shadow: 0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Движение
+   -------------------------------------------------------------------------- */
+
+@keyframes sw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: sw-spin 0.8s linear infinite;
+}
+
+@keyframes sw-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes sw-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sw-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/*
+ * Появление страницы включается только при смене маршрута (см. router.js):
+ * если анимировать каждый рендер, список транзакций будет дёргаться после
+ * каждого платежа.
+ */
+.sw-page {
+  animation: sw-page-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-page .sw-item {
+  animation: sw-item-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-fade {
+  animation: sw-fade-in 0.2s ease-out both;
+}
+
+/* Полоса лимита не должна прыгать: ширина едет, а не переставляется. */
+.sw-bar {
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Доступность
+   -------------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible,
+textarea:focus-visible,
+[role="switch"]:focus-visible {
+  outline: 2px solid var(--ring, #8a8a8a);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -42,13 +257,8 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
 
-/* Видимый фокус для клавиатуры — в бандле он завязан на focus-visible утилиты,
-   но у ссылок-кнопок демо их нет. */
-a:focus-visible,
-button:focus-visible,
-[role="switch"]:focus-visible {
-  outline: 2px solid var(--ring, #8a8a8a);
-  outline-offset: 2px;
+  html {
+    scroll-behavior: auto;
+  }
 }
