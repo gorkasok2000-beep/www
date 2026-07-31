@@ -1,0 +1,74 @@
+// Хранилище прототипа. Ончейн остаётся источником истины по балансам, правилам и
+// транзакциям; база держит только то, чего в блокчейне нет: API-ключи, ключи подписи
+// и кэш событий для витрины.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id String @id @default(cuid())
+
+  /// Публичное имя агента на витрине. Дублирует onchain-handle из AgentRegistry.
+  handle String @unique
+
+  /// HUMAN_CUSTODIAN | AUTONOMOUS_ENTITY (SQLite не поддерживает enum).
+  mode String
+
+  /// Адрес ERC-4337 кошелька.
+  accountAddress String @unique
+
+  /// EOA, которым агент подписывает UserOperation.
+  ownerAddress String
+
+  /// Приватный ключ агента, зашифрованный AES-256-GCM на APP_ENCRYPTION_KEY.
+  /// ПРОТОТИП: в проде ключи должны жить в KMS/HSM и не покидать его.
+  ownerKeyCiphertext String
+
+  /// Кастодиан-человек (null для Autonomous Entity) и его ключ — по той же схеме.
+  custodianAddress       String?
+  custodianKeyCiphertext String?
+
+  /// sha256 от выданного API-ключа. Сам ключ показывается один раз при регистрации.
+  apiKeyHash String @unique
+
+  createdAt DateTime @default(now())
+
+  transactions TransactionLog[]
+}
+
+/// Кэш событий AgentTransaction. Нужен, чтобы дашборд и витрина не переспрашивали
+/// ноду на каждый рендер; при расхождении онchain-лог всегда главнее.
+model TransactionLog {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  accountAddress String
+  to             String
+  valueWei       String
+  selector       String
+  txHash         String
+  blockNumber    String
+  timestamp      DateTime
+
+  /// Уникальность события в блокчейне: хеш транзакции + индекс лога.
+  logIndex Int
+
+  @@unique([txHash, logIndex])
+  @@index([accountAddress])
+  @@index([timestamp])
+}
+
+/// Курсор индексатора: с какого блока продолжать чтение логов.
+model IndexerState {
+  id              String @id @default("default")
+  lastBlockNumber String
+}

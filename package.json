@@ -11,7 +11,9 @@
     "contracts:fmt": "forge fmt --root contracts",
     "deploy:local": "forge script script/Deploy.s.sol:Deploy --root contracts --rpc-url http://127.0.0.1:8545 --broadcast",
     "dev": "pnpm --filter web dev",
-    "build": "pnpm --filter web build"
+    "build": "pnpm --filter web build",
+    "db:push": "pnpm --filter web db:push",
+    "demo": "pnpm --filter web exec tsx ../../examples/agent-demo.ts"
   },
   "engines": {
     "node": ">=20"

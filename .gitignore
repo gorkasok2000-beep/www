@@ -30,3 +30,6 @@ next-env.d.ts
 .DS_Store
 *.log
 coverage/
+
+# prisma client генерируется из схемы
+apps/web/src/generated/
