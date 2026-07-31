@@ -14,7 +14,7 @@
  *   pnpm --filter web build     # сначала нужен .next с бандлом стилей
  *   node demo/build.mjs
  */
-import {readFileSync, writeFileSync, readdirSync} from "node:fs";
+import {readFileSync, writeFileSync, readdirSync, mkdirSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -77,3 +77,11 @@ ${app}
 const target = join(here, "synth-wallet-demo.html");
 writeFileSync(target, html);
 console.log(`${target} — ${(html.length / 1024).toFixed(0)} КБ`);
+
+// Вторая копия — точка входа для GitHub Pages: в настройках репозитория Pages умеют
+// раздавать папку /docs текущей ветки, поэтому отдельная ветка не нужна.
+// Пишем из того же исходника, чтобы копии не разъезжались.
+mkdirSync(join(root, "docs"), {recursive: true});
+const pagesTarget = join(root, "docs", "index.html");
+writeFileSync(pagesTarget, html);
+console.log(`${pagesTarget} — та же сборка для GitHub Pages`);

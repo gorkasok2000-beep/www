@@ -177,3 +177,18 @@ curl -X POST http://localhost:3000/api/v1/agents/me/transactions \
   (MIT) — композиция секций лендинга.
 
 Код прототипа распространяется под MIT.
+
+### Публичная ссылка через GitHub Pages
+
+Сборка демо лежит ещё и в `docs/index.html` — это точка входа для GitHub Pages.
+Чтобы получить постоянный публичный адрес, который открывается без входа в аккаунт:
+
+1. Repository → Settings → Pages
+2. Source: **Deploy from a branch**
+3. Branch: `claude/synth-wallet-prototype-ox1cd0`, папка **`/docs`** → Save
+
+Через минуту демо будет доступно по `https://gorkasok2000-beep.github.io/www/`.
+
+Оговорка: GitHub Pages для приватных репозиториев доступны только на платных планах.
+На бесплатном плане нужно сначала сделать репозиторий публичным
+(Settings → General → Change repository visibility).
