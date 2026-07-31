@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/deployments/*.json
+!contracts/deployments/.gitkeep
+
+# next.js
+.next/
+out/
+build/
+next-env.d.ts
+
+# database (prototype uses a local SQLite file)
+*.db
+*.db-journal
+*.sqlite
+
+# env
+.env
+.env.local
+.env*.local
+!.env.example
+
+# misc
+.DS_Store
+*.log
+coverage/
