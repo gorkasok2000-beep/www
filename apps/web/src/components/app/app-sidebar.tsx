@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import {usePathname} from "next/navigation";
-import {ArrowLeftRightIcon, BotIcon, LayoutDashboardIcon, RadioIcon, SlidersHorizontalIcon} from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  BotIcon,
+  LayoutDashboardIcon,
+  RadioIcon,
+  ReceiptIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 
 import {
   Sidebar,
@@ -23,6 +30,7 @@ const NAV = [
     label: "Кошелёк",
     items: [
       {title: "Обзор", url: "/dashboard", icon: LayoutDashboardIcon},
+      {title: "Платежи", url: "/payments", icon: ReceiptIcon},
       {title: "Транзакции", url: "/transactions", icon: ArrowLeftRightIcon},
       {title: "Правила", url: "/settings", icon: SlidersHorizontalIcon},
     ],

@@ -1,7 +1,14 @@
-import {ArrowLeftRightIcon, SnowflakeIcon, WalletIcon, ShieldCheckIcon} from "lucide-react";
+import {
+  ArrowLeftRightIcon,
+  ShieldCheckIcon,
+  SnowflakeIcon,
+  TriangleAlertIcon,
+  WalletIcon,
+} from "lucide-react";
 import Link from "next/link";
 import {redirect} from "next/navigation";
 
+import {SignerCard} from "@/components/app/signer-card";
 import {WalletActions} from "@/components/app/wallet-actions";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -9,6 +16,7 @@ import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
 import {Progress} from "@/components/ui/progress";
 import {agentState, agentTransactions} from "@/lib/agents";
 import {currentAgent} from "@/lib/auth";
+import {gasOutlook, signingOverview} from "@/lib/cabinet";
 import {formatEth, formatPeriod, MODE_LABEL, plural, shortAddress, timeAgo} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +27,13 @@ export default async function DashboardPage() {
     redirect("/register");
   }
 
-  const [state, transactions] = await Promise.all([
+  const [state, transactions, signing] = await Promise.all([
     agentState(agent),
     agentTransactions(agent, 8),
+    signingOverview(agent),
   ]);
+
+  const gas = await gasOutlook(state);
 
   const hasLimit = state.rules.limitWei > 0n;
   const spentInWindow = hasLimit ? state.rules.limitWei - state.spendingRemainingWei : 0n;
@@ -52,9 +63,9 @@ export default async function DashboardPage() {
         />
         <StatCard
           icon={<ShieldCheckIcon className="size-4 text-muted-foreground" />}
-          label="Депозит на газ"
-          value={`${formatEth(state.gasDepositWei)} ETH`}
-          hint="Средства в EntryPoint на оплату операций"
+          label="Хватит на газ"
+          value={gas.enough ? `≈ ${gas.operationsLeft} опер.` : "нет"}
+          hint={`Одна операция ≈ ${formatEth(gas.operationCostWei)} ETH; депозит ${formatEth(state.gasDepositWei)} ETH`}
         />
         <StatCard
           icon={<ArrowLeftRightIcon className="size-4 text-muted-foreground" />}
@@ -63,6 +74,38 @@ export default async function DashboardPage() {
           hint={`${plural(transactions.length, "запись", "записи", "записей")} в публичном логе`}
         />
       </div>
+
+      {!gas.enough && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex gap-3 pt-6">
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <div className="text-sm">
+              <p className="font-medium">Средств не хватит даже на одну операцию.</p>
+              <p className="mt-1 text-muted-foreground">
+                Кошелёк платит за газ сам, поэтому непустой баланс ещё не значит, что
+                платёж пройдёт. Пополните кошелёк минимум на{" "}
+                {formatEth(gas.operationCostWei)} ETH сверх суммы платежа.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!signing.canPay && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex gap-3 pt-6">
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <div className="text-sm">
+              <p className="font-medium">Платформе нечем подписывать операции.</p>
+              <p className="mt-1 text-muted-foreground">
+                Главный ключ у агента, а действующего ключа с бюджетом платформе не выдано.
+                Выпустите его в карточке «Подпись операций» — до этого платежи будут
+                отклоняться.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
@@ -147,7 +190,24 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
-        <WalletActions frozen={state.frozen} />
+        <div className="space-y-6">
+          <WalletActions frozen={state.frozen} />
+          <SignerCard
+            mode={signing.mode}
+            signerUrl={signing.signerUrl}
+            sessionKey={
+              signing.sessionKey && {
+                address: signing.sessionKey.address,
+                budgetWei: signing.sessionKey.budgetWei.toString(),
+                spentWei: signing.sessionKey.spentWei.toString(),
+                remainingWei: signing.sessionKey.remainingWei.toString(),
+                validUntil: signing.sessionKey.validUntil.toISOString(),
+                targetsRestricted: signing.sessionKey.targetsRestricted,
+                registered: signing.sessionKey.registered,
+              }
+            }
+          />
+        </div>
       </div>
     </div>
   );

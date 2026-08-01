@@ -5,6 +5,7 @@
 /** [маршрут, подпись в сайдбаре, иконка, короткая подпись для нижней панели] */
 const CABINET_NAV = [
   ["#/dashboard", "Обзор", "layout-dashboard", "Обзор"],
+  ["#/payments", "Платежи", "receipt", "Платежи"],
   ["#/transactions", "Транзакции", "arrow-left-right", "История"],
   ["#/api-keys", "API-ключи", "key-round", "Ключи"],
   ["#/settings", "Правила", "sliders-horizontal", "Правила"],
@@ -200,6 +201,19 @@ function dashboardPage() {
     "sw-item",
   );
 
+  const noKeyNotice = sessionKeyLive(w)
+    ? ""
+    : `<div class="sw-item flex gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+         ${icon("triangle-alert", "mt-0.5 size-4 shrink-0 text-amber-500")}
+         <div>
+           <p class="font-medium">Платформе нечем подписывать операции.</p>
+           <p class="mt-1 text-muted-foreground">
+             Главный ключ у агента, а действующего ключа с бюджетом платформе не выдано.
+             Выпустите его в карточке «Подпись операций» — до этого платежи будут отклоняться.
+           </p>
+         </div>
+       </div>`;
+
   return `
     <div class="space-y-6">
       <div class="flex flex-wrap items-center gap-3">
@@ -213,6 +227,8 @@ function dashboardPage() {
         ${statCard("arrow-left-right", "Транзакций", String(w.txs.length), `${plural(w.txs.length, "запись", "записи", "записей")} в публичном логе`)}
       </div>
 
+      ${noKeyNotice}
+
       <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div class="space-y-6">
           ${w.mode === "HUMAN_CUSTODIAN" ? limitCard : ""}
@@ -220,9 +236,137 @@ function dashboardPage() {
         </div>
         <div class="space-y-6">
           ${payCard}
+          ${signerCard(w)}
           ${receiveCard}
         </div>
       </div>
+    </div>`;
+}
+
+/**
+ * Чем платформа подписывает операции этого кошелька — и в каких границах.
+ *
+ * Главный вопрос доверия: держит ли платформа главный ключ агента или всего лишь ключ
+ * с бюджетом, который владелец в любой момент отзовёт.
+ */
+function signerCard(w) {
+  const live = sessionKeyLive(w);
+  const remaining = sessionKeyRemaining(w);
+  const usedPercent =
+    live && w.sessionKey.budgetWei > 0n
+      ? Number((w.sessionKey.spentWei * 100n) / w.sessionKey.budgetWei)
+      : 0;
+
+  const keyBlock = live
+    ? `<div class="space-y-3 rounded-lg border p-4">
+         <div class="flex items-center justify-between gap-3">
+           <span class="font-mono text-sm">${shortAddress(w.sessionKey.address)}</span>
+           <span class="text-xs text-muted-foreground">
+             до ${new Date(w.sessionKey.validUntil).toLocaleString("ru-RU")}
+           </span>
+         </div>
+         ${progress(usedPercent)}
+         <div class="flex items-center justify-between text-sm">
+           <div>
+             <p class="text-xs text-muted-foreground">Потрачено</p>
+             <p class="font-semibold tabular-nums">${formatEth(w.sessionKey.spentWei)} ETH</p>
+           </div>
+           <div class="text-right">
+             <p class="text-xs text-muted-foreground">Осталось платформе</p>
+             <p class="font-semibold tabular-nums">${formatEth(remaining)} ETH</p>
+           </div>
+         </div>
+         ${button("Отозвать ключ", {act: "revoke-session-key", variant: "outline", size: "sm", extra: "w-full"})}
+       </div>`
+    : "";
+
+  return card(
+    cardHeader(
+      `${cardTitle("Подпись операций", "text-base font-semibold")}
+       ${badge(live ? "Ключ с бюджетом" : "Ключа нет", live ? "secondary" : "outline")}`,
+      "flex flex-row items-center justify-between space-y-0 pb-4",
+    ) +
+      cardContent(
+        `<p class="text-sm text-muted-foreground">
+           Главный ключ у агента. Платформа платит выданным ключом и не может выйти за
+           его границы: ни больше бюджета, ни позже срока.
+         </p>
+         ${keyBlock}
+         <div class="space-y-2">
+           <p class="text-sm font-medium">${live ? "Выпустить новый ключ" : "Выдать платформе ключ"}</p>
+           <div class="flex gap-2">
+             ${input({model: "form.budgetEth", value: state.form.budgetEth, placeholder: "0.5", inputmode: "decimal", label: "Бюджет ключа в ETH"})}
+             ${button("Выпустить", {act: "issue-session-key", extra: "shrink-0"})}
+           </div>
+           <p class="text-xs text-muted-foreground">
+             Бюджет в ETH на сутки. Предыдущий ключ будет отозван.
+           </p>
+         </div>`,
+        "space-y-5",
+      ),
+    "sw-item",
+  );
+}
+
+// ---------------------------------------------------------------------
+// Платежи
+// ---------------------------------------------------------------------
+
+const PAYMENT_STATUS = {
+  confirmed: ["подтверждён", "secondary"],
+  failed: ["отклонён", "destructive"],
+};
+
+/**
+ * Попытки оплаты, включая неудавшиеся.
+ *
+ * Отличие от «Транзакций»: там публичный лог блокчейна — только то, что действительно
+ * произошло. Здесь видно и отказы, и их причину.
+ */
+function paymentsPage() {
+  const w = wallet();
+
+  const rows = w.payments
+    .map((payment) => {
+      const [label, variant] = PAYMENT_STATUS[payment.status] || PAYMENT_STATUS.failed;
+      return `
+        <div class="sw-item flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:gap-4">
+          <div class="min-w-0 flex-1">
+            <p class="font-mono text-sm">${shortAddress(payment.to)}</p>
+            ${
+              payment.failureReason
+                ? `<p class="mt-1 text-xs text-muted-foreground">${esc(payment.failureReason)}</p>`
+                : `<p class="mt-0.5 text-xs text-muted-foreground">${timeAgo(payment.timestamp)}</p>`
+            }
+          </div>
+          <div class="flex shrink-0 items-center gap-3">
+            ${badge(label, variant)}
+            <p class="text-sm font-semibold tabular-nums">${formatEth(payment.valueWei)} ETH</p>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  return `
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-2xl font-medium tracking-tight">Платежи</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
+          Попытки оплаты со стороны агента — в том числе неудавшиеся, с причиной отказа.
+          Повтор запроса с тем же ключом идемпотентности не создаёт вторую трату:
+          в списке он останется одной записью.
+        </p>
+      </div>
+
+      ${card(
+        cardContent(
+          w.payments.length === 0
+            ? `<p class="py-12 text-center text-sm text-muted-foreground">Платежей пока не было.</p>`
+            : `<div class="divide-y">${rows}</div>`,
+          "pt-6",
+        ),
+        "sw-item",
+      )}
     </div>`;
 }
 

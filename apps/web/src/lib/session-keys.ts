@@ -181,6 +181,20 @@ export async function activeSessionKeyRecord(agent: Agent): Promise<SessionKey |
 }
 
 /**
+ * Последний живой ключ, включая ещё не зарегистрированный.
+ *
+ * Нужен интерфейсу: выпущенный, но не подтверждённый ключ должен быть виден — иначе
+ * владелец, не отправивший транзакцию, увидит пустую карточку и не поймёт, что от него
+ * ждут действия. Для подписи такой ключ, разумеется, не годится — там `activeSessionKeyRecord`.
+ */
+export async function latestSessionKeyRecord(agent: Agent): Promise<SessionKey | null> {
+  return db.sessionKey.findFirst({
+    where: {agentId: agent.id, status: {in: ["PENDING", "ACTIVE"]}, validUntil: {gt: new Date()}},
+    orderBy: {createdAt: "desc"},
+  });
+}
+
+/**
  * Отзыв ключа платформой.
  *
  * Платформа — держатель ключа, а контракт разрешает отзыв держателю наравне с владельцем.

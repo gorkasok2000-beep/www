@@ -2,7 +2,7 @@
 // Маршрутизация, отрисовка и действия
 // ---------------------------------------------------------------------
 
-const CABINET_ROUTES = ["#/dashboard", "#/transactions", "#/settings", "#/api-keys"];
+const CABINET_ROUTES = ["#/dashboard", "#/payments", "#/transactions", "#/settings", "#/api-keys"];
 
 function currentRoute() {
   const hash = location.hash.replace(/^#/, "") || "/";
@@ -58,9 +58,11 @@ function render() {
     const page =
       route === "#/dashboard"
         ? dashboardPage()
-        : route === "#/transactions"
-          ? transactionsPage()
-          : route === "#/api-keys"
+        : route === "#/payments"
+          ? paymentsPage()
+          : route === "#/transactions"
+            ? transactionsPage()
+            : route === "#/api-keys"
             ? apiKeysPage()
             : settingsPage();
     body = cabinetShell(page, route);
@@ -257,10 +259,26 @@ function doSendPayment() {
   state.notice = null;
 
   try {
-    const tx = sendPayment(w, state.form.to.trim(), parseEth(state.form.amountEth));
+    // Ключ идемпотентности генерируется на каждую попытку — ровно так же это делает
+    // кнопка в настоящем кабинете.
+    const payment = sendPayment(w, state.form.to.trim(), parseEth(state.form.amountEth), randomHex(16));
     state.form.to = "";
     state.form.amountEth = "";
-    state.notice = `Транзакция ${tx.txHash.slice(0, 18)}…`;
+    state.notice = `Транзакция ${payment.txHash.slice(0, 18)}…`;
+  } catch (cause) {
+    state.error = cause.message;
+  }
+  render();
+}
+
+function doIssueSessionKey() {
+  const w = wallet();
+  state.error = null;
+  state.notice = null;
+
+  try {
+    const key = issueSessionKey(w, parseEth(state.form.budgetEth));
+    state.notice = `Ключ ${shortAddress(key.address)} выдан на ${formatEth(key.budgetWei)} ETH.`;
   } catch (cause) {
     state.error = cause.message;
   }
@@ -427,6 +445,14 @@ document.addEventListener("click", (event) => {
     // --- кабинет ---
     case "send":
       return doSendPayment();
+    case "issue-session-key":
+      return doIssueSessionKey();
+    case "revoke-session-key": {
+      revokeSessionKey(wallet());
+      state.error = null;
+      state.notice = "Ключ отозван — платформа больше не может платить от имени агента.";
+      return render();
+    }
     case "fill-merchant":
       state.form.to = MERCHANT;
       return render();

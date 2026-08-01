@@ -12,7 +12,7 @@
  * а смысл схемы — доступ даёт расшифрованный ключ, а не запомненный флаг.
  */
 
-const STORAGE_KEY = "synth.demo.v2";
+const STORAGE_KEY = "synth.demo.v3";
 const MERCHANT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 /** Комиссия за операцию: чтобы баланс вёл себя как на настоящей сети. */
@@ -44,7 +44,7 @@ const state = {
   },
   login: {handle: "", passphrase: "", accessKey: "", mode: "keystore", pending: false, error: null},
   adminForm: {user: "", password: "", error: null, pending: false, query: "", amount: "1"},
-  form: {to: "", amountEth: "", target: ""},
+  form: {to: "", amountEth: "", target: "", budgetEth: "0.5"},
   rules: {limitEth: "", periodSeconds: 86400, whitelistEnabled: false},
   revealedKey: null,
   notice: null,
@@ -118,7 +118,11 @@ function makeWallet(overrides) {
     whitelist: [],
     win: {startedAt: 0n, spent: 0n},
     txs: [],
+    // Попытки оплаты, включая неудавшиеся, — то, что в приложении хранит таблица Payment.
+    payments: [],
     apiKeys: [],
+    // Ключ ограниченного доступа, выданный платформе; null — платформе платить нечем.
+    sessionKey: null,
     createdAt: new Date(),
     demo: false,
     ...overrides,
@@ -147,6 +151,15 @@ function seedDemoData() {
       rules: rules
         ? {limitWei: parseEth(rules.limitEth), periodSeconds: rules.period, whitelistEnabled: false}
         : {limitWei: 0n, periodSeconds: 0n, whitelistEnabled: false},
+      // Показательным агентам ключ уже выдан — иначе витрина выглядела бы так, будто
+      // никто из них не может заплатить.
+      sessionKey: {
+        address: randomAddress(),
+        budgetWei: parseEth("1"),
+        spentWei: parseEth("0.35"),
+        validUntil: Date.now() + 20 * 60 * 60 * 1000,
+        issuedAt: minutesAgo(minutes),
+      },
     });
   }
 
@@ -262,6 +275,71 @@ function authorizeSpend(w, to, valueWei) {
 }
 
 // ---------------------------------------------------------------------
+// Ключи ограниченного доступа — перенос SessionKeys.sol
+// ---------------------------------------------------------------------
+
+/** Ключ выдан и не просрочен. */
+function sessionKeyLive(w) {
+  return Boolean(w.sessionKey) && w.sessionKey.validUntil > Date.now();
+}
+
+/** Сколько платформе ещё разрешено потратить; null — ключа нет. */
+function sessionKeyRemaining(w) {
+  if (!sessionKeyLive(w)) return null;
+  const {budgetWei, spentWei} = w.sessionKey;
+  return budgetWei > spentWei ? budgetWei - spentWei : 0n;
+}
+
+/**
+ * Владелец выдаёт платформе ключ с бюджетом и сроком.
+ *
+ * Вечных ключей не бывает и нулевого бюджета тоже — так же, как в контракте:
+ * `registerSessionKey` отвергает и то, и другое.
+ */
+function issueSessionKey(w, budgetWei, ttlSeconds = 86400) {
+  if (budgetWei === 0n) {
+    throw new DemoError("Бюджет ключа должен быть больше нуля.");
+  }
+
+  w.sessionKey = {
+    address: randomAddress(),
+    budgetWei,
+    spentWei: 0n,
+    validUntil: Date.now() + ttlSeconds * 1000,
+    issuedAt: new Date(),
+  };
+  persist();
+  return w.sessionKey;
+}
+
+/** Отзыв доступен и владельцу, и самой платформе — как в контракте. */
+function revokeSessionKey(w) {
+  w.sessionKey = null;
+  persist();
+}
+
+/** Проверка границ ключа. Списание происходит отдельно, после успеха платежа. */
+function authorizeSessionKey(w, valueWei) {
+  if (!w.sessionKey) {
+    throw new DemoError(
+      "У платформы нет ключа для этого кошелька — выпустите его в карточке «Подпись операций».",
+    );
+  }
+  if (w.sessionKey.validUntil <= Date.now()) {
+    throw new DemoError("Срок действия ключа платформы истёк — выпустите новый.");
+  }
+
+  const left = sessionKeyRemaining(w);
+  if (valueWei > left) {
+    throw new DemoError(
+      `Превышен бюджет ключа платформы: запрошено ${formatEth(valueWei)} ETH, ` +
+        `осталось ${formatEth(left)} ETH. Средства на кошельке при этом есть — ` +
+        `границу задал владелец при выдаче ключа.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
 // Операции над кошельками
 // ---------------------------------------------------------------------
 
@@ -279,7 +357,43 @@ function setFrozen(handle, frozen) {
   persist();
 }
 
-function sendPayment(w, to, valueWei) {
+/**
+ * Оплата от имени агента.
+ *
+ * Записывается любая попытка — и удавшаяся, и нет. Это то же, что делает таблица
+ * `Payment` в приложении: агенту важно не только «получилось», но и «почему нет».
+ *
+ * `idempotencyKey` обязателен, как и в API: повтор с тем же ключом возвращает первый
+ * результат и второй траты не создаёт.
+ */
+function sendPayment(w, to, valueWei, idempotencyKey) {
+  if (!idempotencyKey) {
+    throw new DemoError("Нужен ключ идемпотентности: без него повтор стал бы вторым платежом.");
+  }
+
+  const seen = w.payments.find((payment) => payment.idempotencyKey === idempotencyKey);
+  if (seen) {
+    return {...seen, replayed: true};
+  }
+
+  try {
+    return recordPayment(w, to, valueWei, idempotencyKey);
+  } catch (cause) {
+    w.payments.unshift({
+      idempotencyKey,
+      to,
+      valueWei,
+      status: "failed",
+      failureReason: cause.message,
+      txHash: null,
+      timestamp: new Date(),
+    });
+    persist();
+    throw cause;
+  }
+}
+
+function recordPayment(w, to, valueWei, idempotencyKey) {
   if (!isAddress(to)) {
     throw new DemoError("Поле «Адрес получателя» должно быть Ethereum-адресом.");
   }
@@ -290,8 +404,11 @@ function sendPayment(w, to, valueWei) {
     throw new DemoError("Недостаточно средств на кошельке.");
   }
 
+  // Две независимые границы: бюджет ключа платформы и правила кошелька.
+  authorizeSessionKey(w, valueWei);
   authorizeSpend(w, to, valueWei);
 
+  w.sessionKey.spentWei += valueWei;
   w.balanceWei -= valueWei + GAS_FEE;
   w.gasDepositWei += GAS_FEE / 8n;
 
@@ -303,6 +420,15 @@ function sendPayment(w, to, valueWei) {
     timestamp: new Date(),
   };
   w.txs.unshift(tx);
+  w.payments.unshift({
+    idempotencyKey,
+    to,
+    valueWei,
+    status: "confirmed",
+    failureReason: null,
+    txHash: tx.txHash,
+    timestamp: tx.timestamp,
+  });
 
   state.feed.unshift({
     handle: w.handle,

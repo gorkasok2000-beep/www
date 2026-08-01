@@ -204,3 +204,28 @@ export async function estimateFees(): Promise<{
 export function maxCost(gas: GasEstimate, maxFeePerGas: bigint): bigint {
   return (gas.callGasLimit + gas.verificationGasLimit + gas.preVerificationGas) * maxFeePerGas;
 }
+
+/**
+ * Во что обойдётся обычный платёж — оценка для интерфейса.
+ *
+ * Нужна, чтобы показать агенту два разных порога вместо одного баланса: «хватит на газ»
+ * и «хватит на платёж». Без этого непустой баланс, которого не хватает на операцию,
+ * выглядит как необъяснимый отказ.
+ *
+ * Это именно порядок величины: настоящий `callGasLimit` зависит от получателя, а на L2
+ * к стоимости добавляется публикация calldata в L1. Занижать нельзя, поэтому берётся
+ * потолок из локальной оценки.
+ */
+const TYPICAL_CALL_GAS = 80_000n;
+
+export async function estimatePaymentCost(): Promise<{costWei: bigint; maxFeePerGas: bigint}> {
+  const {maxFeePerGas} = await estimateFees();
+
+  const gas: GasEstimate = {
+    callGasLimit: TYPICAL_CALL_GAS,
+    verificationGasLimit: VERIFICATION_GAS_LIMIT,
+    preVerificationGas: PRE_VERIFICATION_OVERHEAD + 2_000n,
+  };
+
+  return {costWei: maxCost(gas, maxFeePerGas), maxFeePerGas};
+}

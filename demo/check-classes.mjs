@@ -16,11 +16,22 @@ import {fileURLToPath} from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-const css =
-  readFileSync(
-    join(root, "apps", "web", ".next", "static", "chunks", "13~skx0ibcey..css"),
-    "utf8",
-  ) + readFileSync(join(here, "extra.css"), "utf8");
+/**
+ * Бандл стилей ищем так же, как это делает `build.mjs`: имя файла содержит хеш и
+ * меняется при каждой пересборке приложения, поэтому прописывать его нельзя.
+ */
+const chunks = join(root, "apps", "web", ".next", "static", "chunks");
+const bundle = readdirSync(chunks)
+  .filter((name) => name.endsWith(".css"))
+  .map((name) => join(chunks, name))
+  .sort((a, b) => readFileSync(b).length - readFileSync(a).length)[0];
+
+if (!bundle) {
+  console.error("Не найден скомпилированный CSS. Сначала: pnpm --filter web build");
+  process.exit(1);
+}
+
+const css = readFileSync(bundle, "utf8") + readFileSync(join(here, "extra.css"), "utf8");
 
 const sources = readdirSync(join(here, "src"))
   .filter((f) => f.endsWith(".js"))
