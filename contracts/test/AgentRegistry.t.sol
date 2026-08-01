@@ -61,6 +61,20 @@ contract AgentRegistryTest is SynthWalletTest {
         registry.registerAgent("orion", agentOwner, address(0), _noRules(), _noWhitelist(), 1);
     }
 
+    /**
+     * @dev Фабрика детерминированная: те же параметры и соль возвращают уже созданный
+     *      кошелёк. Без проверки его регистрировали бы повторно под другим handle —
+     *      и в `_agents` появилась бы вторая запись о том же кошельке.
+     */
+    function test_RevertWhen_AccountAlreadyRegistered() public {
+        AgentAccount account = _registerAutonomous("orion");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AgentRegistry.AgentAlreadyRegistered.selector, address(account))
+        );
+        registry.registerAgent("orion-copy", agentOwner, address(0), _noRules(), _noWhitelist(), 0);
+    }
+
     function test_RevertWhen_HandleEmpty() public {
         vm.expectRevert(AgentRegistry.EmptyHandle.selector);
         registry.registerAgent("", agentOwner, address(0), _noRules(), _noWhitelist(), 0);

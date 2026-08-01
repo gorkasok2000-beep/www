@@ -42,6 +42,7 @@ contract AgentRegistry is Ownable {
 
     error EmptyHandle();
     error HandleAlreadyTaken(string handle);
+    error AgentAlreadyRegistered(address account);
     error UnknownAgent(address account);
     error CustodianRequired();
 
@@ -75,6 +76,11 @@ contract AgentRegistry is Ownable {
         require(!handleTaken[handleKey], HandleAlreadyTaken(handle));
 
         account = address(factory.createAccount(owner, custodian, rules, whitelist, salt));
+
+        // Фабрика детерминированная: те же параметры и соль возвращают уже созданный
+        // кошелёк. Повторная регистрация его под другим handle породила бы вторую
+        // запись о том же кошельке и рассинхронизацию `_indexOf` — запрещаем.
+        require(_indexOf[account] == 0, AgentAlreadyRegistered(account));
 
         handleTaken[handleKey] = true;
         _agents.push(

@@ -4,7 +4,9 @@ pragma solidity ^0.8.28;
 import {BaseAccount} from "@account-abstraction/contracts/core/BaseAccount.sol";
 import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
+import {IStakeManager} from "@account-abstraction/contracts/interfaces/IStakeManager.sol";
 import {SimpleAccount} from "@account-abstraction/contracts/accounts/SimpleAccount.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 import {SynthWalletTest} from "./SynthWalletTest.t.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
@@ -250,6 +252,77 @@ contract SessionKeysTest is SynthWalletTest {
             abi.encodeWithSelector(
                 SessionKeys.SessionCallNotAllowed.selector, SimpleAccount.withdrawDepositTo.selector
             )
+        );
+        _handleOp(op);
+    }
+
+    // ------------------------------------------------------------------
+    // Привилегированные цели закрыты даже через execute
+    // ------------------------------------------------------------------
+
+    /**
+     * @dev Раньше проверка разрешённых методов смотрела только на селектор самой
+     *      операции: `execute(address(this), 0, registerSessionKey(...))` проходил
+     *      валидацию с нулевым расходом бюджета, а на исполнении onlyOwner пускал
+     *      вызов от имени самого аккаунта. Теперь адрес кошелька как цель запрещён.
+     */
+    function test_RevertWhen_SessionKeyCallsRegisterSessionKeyThroughSelf() public {
+        AgentAccount account = _fundedWithKey(1 ether);
+
+        bytes memory inner = abi.encodeCall(
+            AgentAccount.registerSessionKey,
+            (platform, 0, uint48(block.timestamp) + KEY_LIFETIME, 100 ether, _noWhitelist())
+        );
+        bytes memory callData = _executeCalldata(address(account), 0, inner);
+
+        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
+        );
+        _handleOp(op);
+
+        assertEq(account.sessionKeyRemaining(platform), 1 ether);
+    }
+
+    /// @dev Тот же запрет закрывает апгрейд реализации: цель снова сам кошелёк.
+    function test_RevertWhen_SessionKeyCallsUpgradeThroughSelf() public {
+        AgentAccount account = _fundedWithKey(1 ether);
+
+        bytes memory inner = abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (stranger, ""));
+        bytes memory callData = _executeCalldata(address(account), 0, inner);
+
+        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
+        );
+        _handleOp(op);
+    }
+
+    /// @dev И вывод депозита на газ: через self-call он шёл бы мимо бюджета ключа.
+    function test_RevertWhen_SessionKeyCallsWithdrawDepositThroughSelf() public {
+        AgentAccount account = _fundedWithKey(1 ether);
+
+        bytes memory inner = abi.encodeCall(SimpleAccount.withdrawDepositTo, (payable(platform), 1 ether));
+        bytes memory callData = _executeCalldata(address(account), 0, inner);
+
+        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
+        );
+        _handleOp(op);
+    }
+
+    /// @dev EntryPoint как цель тоже запрещён: иначе `withdrawTo` снял бы депозит напрямую.
+    function test_RevertWhen_SessionKeyCallsEntryPoint() public {
+        AgentAccount account = _fundedWithKey(1 ether);
+
+        // `withdrawTo` живёт в IStakeManager, который расширяет IEntryPoint.
+        bytes memory inner = abi.encodeCall(IStakeManager.withdrawTo, (payable(platform), 1 ether));
+        bytes memory callData = _executeCalldata(address(entryPoint), 0, inner);
+
+        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(entryPoint))
         );
         _handleOp(op);
     }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {BaseAccount} from "@account-abstraction/contracts/core/BaseAccount.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 
 import {SynthWalletTest} from "./SynthWalletTest.t.sol";
 import {AgentAccount} from "../src/AgentAccount.sol";
@@ -225,6 +226,27 @@ contract AgentAccountTest is SynthWalletTest {
         vm.prank(agentOwner);
         account.execute(merchant, 1 ether, "");
         assertEq(merchant.balance, 1 ether);
+    }
+
+    /// @dev Замороженный кошелёк не может сменить реализацию даже руками владельца:
+    ///      иначе блокировка обходилась бы апгрейдом на реализацию без контроля реестра.
+    function test_RevertWhen_FrozenAccountUpgrades() public {
+        AgentAccount account = _registerAutonomous("orion");
+        AgentAccount newImplementation = new AgentAccount(IEntryPoint(address(entryPoint)));
+
+        vm.prank(admin);
+        registry.setFrozen(address(account), true);
+
+        vm.prank(agentOwner);
+        vm.expectRevert(AgentAccount.AccountFrozen.selector);
+        account.upgradeToAndCall(address(newImplementation), "");
+
+        // После разморозки апгрейд снова возможен — ограничение обратимо.
+        vm.prank(admin);
+        registry.setFrozen(address(account), false);
+
+        vm.prank(agentOwner);
+        account.upgradeToAndCall(address(newImplementation), "");
     }
 
     // ------------------------------------------------------------------

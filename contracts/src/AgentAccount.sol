@@ -252,10 +252,21 @@ contract AgentAccount is SimpleAccount {
         BaseAccount.Call[] memory calls = SessionKeys.decodeCalls(callData);
 
         for (uint256 i = 0; i < calls.length; i++) {
+            address target = calls[i].target;
+            // Ключу закрыты вызовы самого кошелька и EntryPoint — независимо от списка
+            // разрешённых получателей. Иначе через `execute(address(this), 0, …)` ключ
+            // вызвал бы методы «только для владельца» (`registerSessionKey`,
+            // `upgradeToAndCall`, `withdrawDepositTo`): в `SimpleAccount` onlyOwner
+            // пропускает вызов от имени самого аккаунта, а через вызов EntryPoint
+            // ключ снял бы депозит на газ в обход своего бюджета.
+            require(
+                target != address(this) && target != address(entryPoint()),
+                SessionKeys.SessionTargetNotAllowed(target)
+            );
             if (key.targetsRestricted) {
                 require(
-                    sessionKeyTargets[signer][calls[i].target],
-                    SessionKeys.SessionTargetNotAllowed(calls[i].target)
+                    sessionKeyTargets[signer][target],
+                    SessionKeys.SessionTargetNotAllowed(target)
                 );
             }
             key.consume(calls[i].value);
@@ -361,6 +372,26 @@ contract AgentAccount is SimpleAccount {
     // ---------------------------------------------------------------------
     // Администрирование (реестр)
     // ---------------------------------------------------------------------
+
+    /**
+     * @notice Апгрейд реализации запрещён замороженному кошельку.
+     * @dev Иначе заблокированный за мошенничество агент увёл бы кошелёк на новую
+     *      реализацию в обход реестра. Права на апгрейд не меняются: `super`
+     *      сохраняет `onlyProxy` и вызов базового `_authorizeUpgrade`, где права
+     *      остаются за владельцем, как в `SimpleAccount` (UUPS).
+     *
+     *      Проверка вешается на публичный UUPS-метод, а не на `_authorizeUpgrade`:
+     *      в account-abstraction v0.9.0 `SimpleAccount._authorizeUpgrade` объявлен
+     *      БЕЗ `virtual`, поэтому переопределить его в наследнике нельзя.
+     */
+    function upgradeToAndCall(address newImplementation, bytes memory data)
+        public
+        payable
+        override
+    {
+        require(!frozen, AccountFrozen());
+        super.upgradeToAndCall(newImplementation, data);
+    }
 
     /// @notice Обратимая заморозка. Вызывается только реестром.
     function setFrozen(bool value) external {
