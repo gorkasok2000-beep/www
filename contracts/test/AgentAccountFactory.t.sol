@@ -45,12 +45,12 @@ contract AgentAccountFactoryTest is SynthWalletTest {
         factory.setRegistry(stranger);
     }
 
-    function test_RevertWhen_NonDeployerSetsRegistry() public {
-        AgentAccountFactory fresh = new AgentAccountFactory(entryPoint);
+    function test_RevertWhen_NonConfiguratorSetsRegistry() public {
+        AgentAccountFactory fresh = new AgentAccountFactory(entryPoint, address(this));
 
         vm.prank(stranger);
         vm.expectRevert(
-            abi.encodeWithSelector(AgentAccountFactory.NotDeployer.selector, stranger, address(this))
+            abi.encodeWithSelector(AgentAccountFactory.NotConfigurator.selector, stranger, address(this))
         );
         fresh.setRegistry(stranger);
     }

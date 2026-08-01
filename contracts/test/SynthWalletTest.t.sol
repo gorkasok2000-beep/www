@@ -33,7 +33,7 @@ abstract contract SynthWalletTest is Test {
         (agentOwner, agentOwnerKey) = makeAddrAndKey("agentOwner");
 
         entryPoint = new EntryPoint();
-        factory = new AgentAccountFactory(IEntryPoint(address(entryPoint)));
+        factory = new AgentAccountFactory(IEntryPoint(address(entryPoint)), address(this));
         registry = new AgentRegistry(factory, admin);
         factory.setRegistry(address(registry));
     }

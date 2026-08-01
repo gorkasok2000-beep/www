@@ -371,6 +371,39 @@ export const agentAccountAbi = [
   },
   {
     "type": "function",
+    "name": "registerSessionKey",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "validAfter",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "validUntil",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "budgetWei",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "allowedTargets",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "registry",
     "inputs": [],
     "outputs": [
@@ -381,6 +414,19 @@ export const agentAccountAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revokeSessionKey",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -399,6 +445,88 @@ export const agentAccountAbi = [
       },
       {
         "name": "whitelistEnabled",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sessionKeyRemaining",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sessionKeyTargets",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sessionKeys",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "validAfter",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "validUntil",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "budgetWei",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "spentWei",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "targetsRestricted",
         "type": "bool",
         "internalType": "bool"
       }
@@ -780,6 +908,56 @@ export const agentAccountAbi = [
   },
   {
     "type": "event",
+    "name": "SessionKeyRegistered",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "validAfter",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      },
+      {
+        "name": "validUntil",
+        "type": "uint48",
+        "indexed": false,
+        "internalType": "uint48"
+      },
+      {
+        "name": "budgetWei",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "targetsRestricted",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SessionKeyRevoked",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SimpleAccountInitialized",
     "inputs": [
       {
@@ -1005,6 +1183,17 @@ export const agentAccountAbi = [
   },
   {
     "type": "error",
+    "name": "NotOwnerOrSessionKey",
+    "inputs": [
+      {
+        "name": "msgSender",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NotRegistry",
     "inputs": [
       {
@@ -1034,6 +1223,54 @@ export const agentAccountAbi = [
     "type": "error",
     "name": "RulesRequireCustodian",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SessionBudgetExceeded",
+    "inputs": [
+      {
+        "name": "requestedWei",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "remainingWei",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SessionCallNotAllowed",
+    "inputs": [
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SessionKeyNeedsBudget",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SessionKeyNeedsExpiry",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SessionTargetNotAllowed",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1082,6 +1319,11 @@ export const agentAccountFactoryAbi = [
         "name": "anEntryPoint",
         "type": "address",
         "internalType": "contract IEntryPoint"
+      },
+      {
+        "name": "aConfigurator",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -1095,6 +1337,19 @@ export const agentAccountFactoryAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract AgentAccount"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "configurator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1154,19 +1409,6 @@ export const agentAccountFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "deployer",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1299,7 +1541,7 @@ export const agentAccountFactoryAbi = [
   },
   {
     "type": "error",
-    "name": "NotDeployer",
+    "name": "NotConfigurator",
     "inputs": [
       {
         "name": "msgSender",
@@ -1307,7 +1549,7 @@ export const agentAccountFactoryAbi = [
         "internalType": "address"
       },
       {
-        "name": "deployer",
+        "name": "configurator",
         "type": "address",
         "internalType": "address"
       }

@@ -2,12 +2,19 @@
 pragma solidity ^0.8.28;
 
 import {SimpleAccount} from "@account-abstraction/contracts/accounts/SimpleAccount.sol";
+import {BaseAccount} from "@account-abstraction/contracts/core/BaseAccount.sol";
 import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
-import {SIG_VALIDATION_FAILED} from "@account-abstraction/contracts/core/Helpers.sol";
+import {
+    SIG_VALIDATION_FAILED,
+    SIG_VALIDATION_SUCCESS,
+    _packValidationData
+} from "@account-abstraction/contracts/core/Helpers.sol";
 import {Exec} from "@account-abstraction/contracts/utils/Exec.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import {AgentMode, modeOf} from "./lib/AgentTypes.sol";
+import {SessionKeys} from "./lib/SessionKeys.sol";
 import {SpendingRules} from "./lib/SpendingRules.sol";
 
 /**
@@ -29,6 +36,7 @@ import {SpendingRules} from "./lib/SpendingRules.sol";
  */
 contract AgentAccount is SimpleAccount {
     using SpendingRules for SpendingRules.Config;
+    using SessionKeys for SessionKeys.Key;
 
     /// @notice Кастодиан-человек; address(0) => режим Autonomous Entity.
     address public custodian;
@@ -48,6 +56,16 @@ contract AgentAccount is SimpleAccount {
     SpendingRules.Window private _window;
 
     /**
+     * @notice Ограниченные ключи подписи. Владелец выдаёт их тем, кто действует от его
+     *         имени — например платформе, отправляющей операции агента, — и в любой
+     *         момент отзывает.
+     */
+    mapping(address signer => SessionKeys.Key) public sessionKeys;
+
+    /// @notice Разрешённые получатели конкретного ключа, если `targetsRestricted`.
+    mapping(address signer => mapping(address target => bool)) public sessionKeyTargets;
+
+    /**
      * @notice Публичный лог трат: кто, куда, сколько, когда.
      * @dev `account` дублирует адрес эмитента события — так индексатору витрины не нужно
      *      знать список кошельков заранее, достаточно фильтра по одной теме.
@@ -60,6 +78,14 @@ contract AgentAccount is SimpleAccount {
     event RulesUpdated(uint128 limitWei, uint64 periodSeconds, bool whitelistEnabled);
     event WhitelistUpdated(address indexed target, bool allowed);
     event FrozenSet(bool frozen);
+    event SessionKeyRegistered(
+        address indexed signer,
+        uint48 validAfter,
+        uint48 validUntil,
+        uint128 budgetWei,
+        bool targetsRestricted
+    );
+    event SessionKeyRevoked(address indexed signer);
 
     error UseInitializeAgent();
     error NotCustodian(address msgSender, address custodian);
@@ -67,6 +93,7 @@ contract AgentAccount is SimpleAccount {
     error RulesRequireCustodian();
     error AccountFrozen();
     error RecipientNotWhitelisted(address target);
+    error NotOwnerOrSessionKey(address msgSender);
 
     constructor(IEntryPoint anEntryPoint) SimpleAccount(anEntryPoint) {}
 
@@ -178,9 +205,15 @@ contract AgentAccount is SimpleAccount {
     }
 
     /**
-     * @dev Проверка заморозки на фазе валидации. Читается только собственный storage
-     *      аккаунта, поэтому правила ERC-7562 не нарушаются и операция корректно
-     *      отбраковывается настоящим бандлером ещё до попадания в блок.
+     * @dev Валидация подписи. Здесь же живут все проверки session key.
+     *
+     *      Читается только собственный storage аккаунта и разбирается calldata самой
+     *      операции — правила ERC-7562 не нарушаются, поэтому настоящий бандлер отбракует
+     *      негодную операцию ещё до попадания в блок.
+     *
+     *      Срок действия ключа НЕ сверяется здесь с `block.timestamp`: в фазе валидации это
+     *      запрещено. Вместо этого диапазон возвращается в `validationData`, и его проверяет
+     *      сам EntryPoint — штатный механизм ERC-4337.
      */
     function _validateSignature(PackedUserOperation calldata userOp, bytes32 userOpHash)
         internal
@@ -191,7 +224,42 @@ contract AgentAccount is SimpleAccount {
         if (frozen) {
             return SIG_VALIDATION_FAILED;
         }
-        return super._validateSignature(userOp, userOpHash);
+
+        address signer = ECDSA.recover(userOpHash, userOp.signature);
+        if (signer == owner) {
+            return SIG_VALIDATION_SUCCESS;
+        }
+
+        SessionKeys.Key storage key = sessionKeys[signer];
+        if (!key.exists()) {
+            return SIG_VALIDATION_FAILED;
+        }
+
+        _consumeSessionAllowance(signer, key, userOp.callData);
+
+        return _packValidationData(false, key.validUntil, key.validAfter);
+    }
+
+    /**
+     * @dev Проверяет, что операция укладывается в границы ключа, и списывает её из бюджета.
+     *
+     *      Нарушение границ — не «неверная подпись», а именно нарушение выданных условий,
+     *      поэтому здесь revert с внятной ошибкой, а не `SIG_VALIDATION_FAILED`.
+     */
+    function _consumeSessionAllowance(address signer, SessionKeys.Key storage key, bytes calldata callData)
+        internal
+    {
+        BaseAccount.Call[] memory calls = SessionKeys.decodeCalls(callData);
+
+        for (uint256 i = 0; i < calls.length; i++) {
+            if (key.targetsRestricted) {
+                require(
+                    sessionKeyTargets[signer][calls[i].target],
+                    SessionKeys.SessionTargetNotAllowed(calls[i].target)
+                );
+            }
+            key.consume(calls[i].value);
+        }
     }
 
     function _authorizeSpend(address target, uint256 value) internal {
@@ -231,6 +299,63 @@ contract AgentAccount is SimpleAccount {
             whitelisted[targets[i]] = allowed;
             emit WhitelistUpdated(targets[i], allowed);
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Ключи ограниченного доступа (владелец)
+    // ---------------------------------------------------------------------
+
+    /**
+     * @notice Выдаёт ключ, которым можно платить от имени кошелька в заданных границах.
+     * @param signer            адрес ключа, которому выдаются права
+     * @param validAfter        не раньше этого времени; 0 — сразу
+     * @param validUntil        не позже; ноль запрещён, вечных ключей не бывает
+     * @param budgetWei         сколько всего разрешено потратить этим ключом
+     * @param allowedTargets    список получателей; пустой — ограничения по адресам нет
+     *
+     * @dev Повторный вызов для того же адреса перезаписывает условия и обнуляет
+     *      израсходованное — так владелец продлевает ключ, не заводя новый.
+     */
+    function registerSessionKey(
+        address signer,
+        uint48 validAfter,
+        uint48 validUntil,
+        uint128 budgetWei,
+        address[] calldata allowedTargets
+    ) external onlyOwner {
+        require(validUntil != 0, SessionKeys.SessionKeyNeedsExpiry());
+        require(budgetWei != 0, SessionKeys.SessionKeyNeedsBudget());
+
+        sessionKeys[signer] = SessionKeys.Key({
+            validAfter: validAfter,
+            validUntil: validUntil,
+            budgetWei: budgetWei,
+            spentWei: 0,
+            targetsRestricted: allowedTargets.length != 0
+        });
+
+        for (uint256 i = 0; i < allowedTargets.length; i++) {
+            sessionKeyTargets[signer][allowedTargets[i]] = true;
+        }
+
+        emit SessionKeyRegistered(signer, validAfter, validUntil, budgetWei, allowedTargets.length != 0);
+    }
+
+    /**
+     * @notice Отзывает ключ немедленно.
+     * @dev Отозвать может владелец или сам держатель ключа — если он понял, что
+     *      скомпрометирован, ему не нужно ждать реакции владельца.
+     */
+    function revokeSessionKey(address signer) external {
+        require(msg.sender == owner || msg.sender == signer, NotOwnerOrSessionKey(msg.sender));
+
+        delete sessionKeys[signer];
+        emit SessionKeyRevoked(signer);
+    }
+
+    /// @notice Остаток бюджета ключа.
+    function sessionKeyRemaining(address signer) external view returns (uint256) {
+        return sessionKeys[signer].remaining();
     }
 
     // ---------------------------------------------------------------------

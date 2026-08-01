@@ -28,26 +28,38 @@ import {SpendingRules} from "./lib/SpendingRules.sol";
 contract AgentAccountFactory {
     AgentAccount public immutable accountImplementation;
     ISenderCreator public immutable senderCreator;
-    address public immutable deployer;
 
-    /// @notice Реестр агентов; задаётся один раз деплойером.
+    /// @notice Кто вправе один раз связать фабрику с реестром.
+    address public immutable configurator;
+
+    /// @notice Реестр агентов; задаётся один раз.
     address public registry;
 
     event RegistrySet(address indexed registry);
 
     error NotAuthorizedCreator(address msgSender, address senderCreator, address registry);
-    error NotDeployer(address msgSender, address deployer);
+    error NotConfigurator(address msgSender, address configurator);
     error RegistryAlreadySet(address registry);
     error RegistryNotSet();
 
-    constructor(IEntryPoint anEntryPoint) {
+    /**
+     * @param anEntryPoint  EntryPoint сети
+     * @param aConfigurator адрес, которому разрешён `setRegistry`
+     *
+     * @dev `configurator` передаётся аргументом, а не берётся из `msg.sender`: фабрика
+     *      деплоится детерминированно через канонический CREATE2-деплойер, и `msg.sender`
+     *      в конструкторе — это сам деплойер, безликий контракт без ключа. Заодно адрес
+     *      фабрики перестаёт зависеть от того, кто нажал кнопку деплоя: он определяется
+     *      только аргументами и солью, поэтому во всех сетях совпадает.
+     */
+    constructor(IEntryPoint anEntryPoint, address aConfigurator) {
         accountImplementation = new AgentAccount(anEntryPoint);
         senderCreator = anEntryPoint.senderCreator();
-        deployer = msg.sender;
+        configurator = aConfigurator;
     }
 
     function setRegistry(address aRegistry) external {
-        require(msg.sender == deployer, NotDeployer(msg.sender, deployer));
+        require(msg.sender == configurator, NotConfigurator(msg.sender, configurator));
         require(registry == address(0), RegistryAlreadySet(registry));
         registry = aRegistry;
         emit RegistrySet(aRegistry);
