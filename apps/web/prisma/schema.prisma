@@ -27,9 +27,17 @@ model Agent {
   /// EOA, которым агент подписывает UserOperation.
   ownerAddress String
 
+  /// Чем платформа подписывает операции агента: SERVER_KEY | SESSION_KEY | REMOTE.
+  /// См. `src/lib/chain/signer.ts` — там же описано, что каждый режим означает.
+  signerMode String @default("SERVER_KEY")
+
   /// Приватный ключ агента, зашифрованный AES-256-GCM на APP_ENCRYPTION_KEY.
-  /// ПРОТОТИП: в проде ключи должны жить в KMS/HSM и не покидать его.
-  ownerKeyCiphertext String
+  /// Заполнен только в режиме SERVER_KEY — прототипном. В остальных режимах главный
+  /// ключ у агента, и у платформы его нет: это и есть цель перехода.
+  ownerKeyCiphertext String?
+
+  /// REMOTE: эндпоинт агента, который возвращает подпись по хешу операции.
+  signerUrl String?
 
   /// Кастодиан-человек (null для Autonomous Entity) и его ключ — по той же схеме.
   custodianAddress       String?
@@ -41,6 +49,43 @@ model Agent {
   createdAt DateTime @default(now())
 
   transactions TransactionLog[]
+  sessionKeys  SessionKey[]
+}
+
+/// Ключ ограниченного доступа, выданный платформе владельцем кошелька.
+///
+/// Приватная часть лежит здесь, зашифрованная тем же ключом окружения, что и всё
+/// остальное, — но цена её утечки принципиально другая: контракт не даст потратить
+/// больше `budgetWei`, позже `validUntil` и не тем получателям. Границы проверяет
+/// блокчейн, а не эта таблица; поля дублируют их только для отображения.
+model SessionKey {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Адрес ключа. Он же — то, что записано в контракте кошелька.
+  address String @unique
+
+  /// Приватная часть, AES-256-GCM на APP_ENCRYPTION_KEY.
+  privateKeyCiphertext String
+
+  budgetWei  String
+  validUntil DateTime
+
+  /// JSON-массив разрешённых получателей; пустой — ограничения по адресам нет.
+  targets String @default("[]")
+
+  /// PENDING — ключ выпущен, но владелец ещё не зарегистрировал его в контракте.
+  /// ACTIVE — регистрация подтверждена чтением контракта.
+  /// REVOKED — отозван.
+  status String @default("PENDING")
+
+  createdAt   DateTime  @default(now())
+  activatedAt DateTime?
+  revokedAt   DateTime?
+
+  @@index([agentId, status])
 }
 
 /// Кэш событий AgentTransaction. Нужен, чтобы дашборд и витрина не переспрашивали

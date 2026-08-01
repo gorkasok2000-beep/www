@@ -1,7 +1,7 @@
 import {createAgent} from "@/lib/agents";
 import {json, readJson, route} from "@/lib/api";
 import {API_KEY_COOKIE} from "@/lib/auth";
-import {parseMode, parseRules, parseWhitelist} from "@/lib/validate";
+import {parseAddress, parseMode, parseRules, parseSignerUrl, parseWhitelist} from "@/lib/validate";
 
 /**
  * POST /api/v1/agents — регистрация агента.
@@ -9,10 +9,17 @@ import {parseMode, parseRules, parseWhitelist} from "@/lib/validate";
  * Никаких проверок личности: указываешь имя и режим — получаешь кошелёк. API-ключ
  * возвращается ровно один раз, повторно его посмотреть нельзя.
  *
+ * Необязательное поле `owner` — адрес, которым агент будет подписывать свои операции.
+ * Если он указан, приватного ключа у платформы не появляется вовсе: она либо просит
+ * подпись у `signerUrl`, либо ждёт, когда владелец выдаст ей session key. Если не
+ * указан — ключ генерирует сервер (прототипный путь, см. `lib/agents.ts`).
+ *
  * Тело:
  *   {
  *     "handle": "orion",
  *     "mode": "AUTONOMOUS_ENTITY" | "HUMAN_CUSTODIAN",
+ *     "owner": "0x…",
+ *     "signerUrl": "https://agent.example/sign",
  *     "rules": {"limitEth": "0.5", "periodSeconds": 86400, "whitelistEnabled": true},
  *     "whitelist": ["0x…"]
  *   }
@@ -21,6 +28,8 @@ export const POST = route(async (request) => {
   const body = await readJson<{
     handle?: string;
     mode?: string;
+    owner?: unknown;
+    signerUrl?: unknown;
     rules?: unknown;
     whitelist?: unknown;
   }>(request);
@@ -31,6 +40,8 @@ export const POST = route(async (request) => {
   const {agent, apiKey} = await createAgent({
     handle: String(body.handle ?? ""),
     mode,
+    owner: body.owner === undefined ? undefined : parseAddress(body.owner, "owner"),
+    signerUrl: parseSignerUrl(body.signerUrl),
     rules: isCustodial && body.rules ? parseRules(body.rules) : undefined,
     whitelist: isCustodial ? parseWhitelist(body.whitelist) : [],
   });
@@ -42,6 +53,7 @@ export const POST = route(async (request) => {
       account: agent.accountAddress,
       owner: agent.ownerAddress,
       custodian: agent.custodianAddress,
+      signerMode: agent.signerMode,
       apiKey,
       note: "Сохраните apiKey: он показывается только сейчас.",
     },

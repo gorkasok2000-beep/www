@@ -6,6 +6,8 @@ import {entryPointAbi} from "./abis";
 import {fromRevertData} from "./errors";
 import {operatorAddress, operatorClient, publicClient} from "./clients";
 import {activeChain, deployment} from "./config";
+import {estimateFees} from "./gas";
+import type {Signer} from "./signer";
 import {buildUserOperation, signUserOperation, type PackedUserOperation} from "./userOperation";
 
 /**
@@ -111,19 +113,17 @@ export function bundler(): Bundler {
 }
 
 /**
- * Полный путь платежа агента: собрать операцию, подписать ключом агента, отправить.
+ * Полный путь операции агента: собрать, подписать, отправить, убедиться, что отработала.
+ *
+ * Чем именно подписано — забота `Signer`: главным ключом с сервера, session key
+ * платформы или эндпоинтом самого агента. Отправка от этого не зависит.
  */
 export async function sendAgentUserOperation(params: {
   sender: Address;
   callData: Hex;
-  ownerPrivateKey: Hex;
+  signer: Signer;
 }): Promise<{txHash: Hex}> {
-  const client = publicClient();
-  const gasPrice = await client.getGasPrice();
-
-  // Небольшой запас: цена газа между сборкой и включением в блок может подрасти.
-  const maxFeePerGas = gasPrice * 2n || 1_000_000_000n;
-  const maxPriorityFeePerGas = maxFeePerGas;
+  const {maxFeePerGas, maxPriorityFeePerGas} = await estimateFees();
 
   const userOp = await buildUserOperation({
     sender: params.sender,
@@ -132,7 +132,7 @@ export async function sendAgentUserOperation(params: {
     maxPriorityFeePerGas,
   });
 
-  const signed = await signUserOperation(userOp, params.ownerPrivateKey);
+  const signed = await signUserOperation(userOp, params.signer);
   const result = await bundler().send(signed);
 
   await assertUserOperationSucceeded(result.txHash);

@@ -19,8 +19,10 @@ import {
   type OnchainAgentState,
   type RulesInput,
 } from "./chain/registry";
+import {localSigner, remoteSigner, type Signer, type SignerMode} from "./chain/signer";
 import {decryptSecret, encryptSecret, generateApiKey, hashApiKey} from "./crypto";
 import {db} from "./db";
+import {activeSessionKeyRecord, assertSessionKeyAllows} from "./session-keys";
 
 /** Два сценария из ТЗ. Значения совпадают с порядком enum `AgentMode` в контракте. */
 export const AGENT_MODES = ["HUMAN_CUSTODIAN", "AUTONOMOUS_ENTITY"] as const;
@@ -31,15 +33,25 @@ export {AgentError};
 /**
  * Регистрация агента.
  *
- * Ключи генерируются на сервере: у агента ещё нет ни кошелька, ни способа подписать
- * первую операцию. Приватный ключ сразу шифруется, наружу отдаётся только адрес
- * и API-ключ — и только один раз.
+ * Главный ключ агента может появиться тремя способами, и от этого зависит, что платформа
+ * сможет подписывать:
+ *
+ *   1. `owner` + `signerUrl` — ключ у агента, подпись он отдаёт по HTTP. Режим REMOTE:
+ *      у платформы ключа нет вовсе.
+ *   2. `owner` без `signerUrl` — ключ у агента (например, сгенерирован в браузере и
+ *      зашифрован парольной фразой). Платить платформа сможет только после того, как
+ *      владелец выдаст ей session key.
+ *   3. Ничего не передано — ключ генерирует сервер и хранит зашифрованным. Прототипный
+ *      путь: удобно для демонстрации, плохо для продакшена. Оставлен ради обратной
+ *      совместимости и локальной разработки.
  */
 export async function createAgent(params: {
   handle: string;
   mode: AgentMode;
   rules?: RulesInput;
   whitelist?: Address[];
+  owner?: Address;
+  signerUrl?: string;
 }): Promise<{agent: Agent; apiKey: string}> {
   const handle = params.handle.trim();
   if (!/^[a-z0-9][a-z0-9-]{1,30}$/i.test(handle)) {
@@ -61,8 +73,22 @@ export async function createAgent(params: {
     );
   }
 
-  const ownerKey = generatePrivateKey();
-  const owner = privateKeyToAccount(ownerKey).address;
+  if (params.signerUrl && !params.owner) {
+    throw new AgentError(
+      "Вместе с signerUrl нужен owner: платформа обязана знать, чью подпись проверять.",
+      400,
+    );
+  }
+
+  // Ключ генерируется на сервере, только если владелец не назвал свой адрес.
+  const ownerKey = params.owner ? undefined : generatePrivateKey();
+  const owner = params.owner ?? privateKeyToAccount(ownerKey!).address;
+
+  const signerMode: SignerMode = params.signerUrl
+    ? "REMOTE"
+    : params.owner
+      ? "SESSION_KEY"
+      : "SERVER_KEY";
 
   const custodianKey = isCustodial ? generatePrivateKey() : undefined;
   const custodian = custodianKey ? privateKeyToAccount(custodianKey).address : zeroAddress;
@@ -89,7 +115,9 @@ export async function createAgent(params: {
       mode: params.mode,
       accountAddress: account,
       ownerAddress: owner,
-      ownerKeyCiphertext: encryptSecret(ownerKey),
+      signerMode,
+      ownerKeyCiphertext: ownerKey ? encryptSecret(ownerKey) : null,
+      signerUrl: params.signerUrl ?? null,
       custodianAddress: custodianKey ? custodian : null,
       custodianKeyCiphertext: custodianKey ? encryptSecret(custodianKey) : null,
       apiKeyHash: hashApiKey(apiKey),
@@ -108,6 +136,45 @@ export async function agentState(agent: Agent): Promise<OnchainAgentState> {
 }
 
 /**
+ * Чем платформа подпишет операцию этого агента.
+ *
+ * Единственное место, где решается вопрос «а есть ли у нас право подписи». Дальше по
+ * коду ключа уже нет — есть `Signer`, и он либо работает, либо не был получен.
+ */
+export async function signerFor(agent: Agent): Promise<Signer> {
+  switch (agent.signerMode as SignerMode) {
+    case "SERVER_KEY": {
+      if (!agent.ownerKeyCiphertext) {
+        throw new AgentError("У агента нет ключа на сервере — режим указан неверно.", 500);
+      }
+      return localSigner(decryptSecret(agent.ownerKeyCiphertext) as Hex, "SERVER_KEY");
+    }
+
+    case "REMOTE": {
+      if (!agent.signerUrl) {
+        throw new AgentError("Для режима REMOTE не задан эндпоинт подписи.", 500);
+      }
+      return remoteSigner({url: agent.signerUrl, address: agent.ownerAddress as Address});
+    }
+
+    case "SESSION_KEY": {
+      const key = await activeSessionKeyRecord(agent);
+      if (!key) {
+        throw new AgentError(
+          "У платформы нет действующего ключа для этого кошелька. " +
+            "Выпустите его: POST /api/v1/agents/me/session-keys.",
+          409,
+        );
+      }
+      return localSigner(decryptSecret(key.privateKeyCiphertext) as Hex, "SESSION_KEY");
+    }
+
+    default:
+      throw new AgentError(`Неизвестный режим подписи ${agent.signerMode}.`, 500);
+  }
+}
+
+/**
  * Агент сам инициирует оплату — центральный сценарий ТЗ.
  *
  * Никаких подтверждений от человека: правила уже зашиты в контракт, и именно он
@@ -117,11 +184,14 @@ export async function sendPayment(
   agent: Agent,
   params: {to: Address; valueWei: bigint; data?: Hex},
 ): Promise<{txHash: Hex}> {
-  const ownerKey = decryptSecret(agent.ownerKeyCiphertext) as Hex;
+  const signer = await signerFor(agent);
   const account = agent.accountAddress as Address;
   const data = params.data ?? "0x";
 
   // Сначала сухой прогон: если правило нарушено, агент узнаёт причину до траты газа.
+  // Симулируем от имени владельца — контракт разрешает ему тот же путь, что и EntryPoint,
+  // поэтому проверяются ровно те же правила кошелька. Границы session key сюда не входят:
+  // их контракт применяет на фазе валидации, и они видны в остатке бюджета ключа.
   try {
     await simulateExecute({
       account,
@@ -134,10 +204,21 @@ export async function sendPayment(
     throw toAgentError(error);
   }
 
+  // Границы session key контракт проверяет на фазе валидации, куда сухой прогон `execute`
+  // не заглядывает. Проверяем их отдельно — чтением состояния ключа, до отправки.
+  if (signer.mode === "SESSION_KEY") {
+    await assertSessionKeyAllows({
+      account,
+      signer: signer.address,
+      to: params.to,
+      valueWei: params.valueWei,
+    });
+  }
+
   const result = await sendAgentUserOperation({
     sender: account,
     callData: encodeExecute(params.to, params.valueWei, data),
-    ownerPrivateKey: ownerKey,
+    signer,
   });
 
   // Сразу подтягиваем свежий лог, чтобы транзакция появилась в дашборде без задержки.

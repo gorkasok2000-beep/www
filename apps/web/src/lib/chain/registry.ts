@@ -223,7 +223,7 @@ export async function fundAccount(account: Address, valueWei: bigint): Promise<H
  */
 const CUSTODIAN_GAS_ALLOWANCE = 5n * 10n ** 16n; // 0.05 ETH
 
-async function ensureGasAllowance(address: Address): Promise<void> {
+export async function ensureGasAllowance(address: Address): Promise<void> {
   const balance = await publicClient().getBalance({address});
   if (balance >= CUSTODIAN_GAS_ALLOWANCE / 2n) {
     return;

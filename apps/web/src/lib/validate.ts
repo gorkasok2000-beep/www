@@ -71,6 +71,36 @@ export function parseRules(value: unknown): RulesInput {
   };
 }
 
+/**
+ * Эндпоинт, у которого платформа спрашивает подпись.
+ *
+ * Платформа сама ходит по этому адресу, поэтому схема ограничена http/https: иначе
+ * агент мог бы заставить сервер дёрнуть `file:` или другой внутренний протокол.
+ * Полноценная защита от SSRF (запрет приватных диапазонов, резолв DNS до запроса) —
+ * задача продакшена, здесь отсечены только очевидные случаи.
+ */
+export function parseSignerUrl(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new AgentError("Поле signerUrl должно быть строкой.", 400);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new AgentError("Поле signerUrl должно быть корректным URL.", 400);
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new AgentError("signerUrl должен использовать http или https.", 400);
+  }
+
+  return url.toString();
+}
+
 export function parseWhitelist(value: unknown): Address[] {
   if (value === undefined || value === null) {
     return [];
