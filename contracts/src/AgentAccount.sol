@@ -62,8 +62,24 @@ contract AgentAccount is SimpleAccount {
      */
     mapping(address signer => SessionKeys.Key) public sessionKeys;
 
-    /// @notice Разрешённые получатели конкретного ключа, если `targetsRestricted`.
-    mapping(address signer => mapping(address target => bool)) public sessionKeyTargets;
+    /**
+     * @notice Поколение списка получателей ключа. Увеличивается при каждой выдаче
+     *         ключа (`registerSessionKey`), поэтому targets старых выдач становятся
+     *         недостижимы для проверки: читается всегда только текущее поколение.
+     * @dev Занимает слот бывшего публичного mapping `sessionKeyTargets` — см. комментарий
+     *      у `_sessionKeyTargets`.
+     */
+    mapping(address signer => uint64) public sessionKeyGeneration;
+
+    /**
+     * @notice Разрешённые получатели ключа по поколениям, если `targetsRestricted`.
+     * @dev Приватное хранилище: наружу targets отдаёт explicit-геттер `sessionKeyTargets`,
+     *      который подставляет ТЕКУЩЕЕ поколение. Поколение инкрементируется при перевыпуске
+     *      ключа, поэтому сузить список получателей можно одним `registerSessionKey` —
+     *      чистить записи прошлых выдач не нужно, они больше ниоткуда не читаются.
+     */
+    mapping(address signer => mapping(uint64 generation => mapping(address target => bool))) private
+        _sessionKeyTargets;
 
     /**
      * @notice Публичный лог трат: кто, куда, сколько, когда.
@@ -264,8 +280,13 @@ contract AgentAccount is SimpleAccount {
                 SessionKeys.SessionTargetNotAllowed(target)
             );
             if (key.targetsRestricted) {
+                // Проверка идёт по ТЕКУЩЕМУ поколению списка: targets от прошлых выдач
+                // ключа недействительны после перевыпуска или отзыва.
+                // Читаем storage напрямую, а не через external-геттер: self-CALL стоил бы
+                // лишний газ на каждый target и добавлял бы риск несовместимости с
+                // ERC-7562-трассировщиками бандлеров в фазе валидации.
                 require(
-                    sessionKeyTargets[signer][target],
+                    _sessionKeyTargets[signer][sessionKeyGeneration[signer]][target],
                     SessionKeys.SessionTargetNotAllowed(target)
                 );
             }
@@ -325,7 +346,9 @@ contract AgentAccount is SimpleAccount {
      * @param allowedTargets    список получателей; пустой — ограничения по адресам нет
      *
      * @dev Повторный вызов для того же адреса перезаписывает условия и обнуляет
-     *      израсходованное — так владелец продлевает ключ, не заводя новый.
+     *      израсходованное — так владелец продлевает ключ, не заводя новый. Заодно
+     *      перевыпуск заменяет список получателей целиком: начинается новое поколение
+     *      (`sessionKeyGeneration`), и разрешения прошлой выдачи больше не действуют.
      */
     function registerSessionKey(
         address signer,
@@ -337,6 +360,11 @@ contract AgentAccount is SimpleAccount {
         require(validUntil != 0, SessionKeys.SessionKeyNeedsExpiry());
         require(budgetWei != 0, SessionKeys.SessionKeyNeedsBudget());
 
+        // Новое поколение — до записи targets. Благодаря инкременту список получателей
+        // прошлой выдачи автоматически перестаёт действовать: проверка и геттер читают
+        // только текущее поколение, а старые записи удалять не нужно.
+        uint64 generation = ++sessionKeyGeneration[signer];
+
         sessionKeys[signer] = SessionKeys.Key({
             validAfter: validAfter,
             validUntil: validUntil,
@@ -346,7 +374,7 @@ contract AgentAccount is SimpleAccount {
         });
 
         for (uint256 i = 0; i < allowedTargets.length; i++) {
-            sessionKeyTargets[signer][allowedTargets[i]] = true;
+            _sessionKeyTargets[signer][generation][allowedTargets[i]] = true;
         }
 
         emit SessionKeyRegistered(signer, validAfter, validUntil, budgetWei, allowedTargets.length != 0);
@@ -356,12 +384,29 @@ contract AgentAccount is SimpleAccount {
      * @notice Отзывает ключ немедленно.
      * @dev Отозвать может владелец или сам держатель ключа — если он понял, что
      *      скомпрометирован, ему не нужно ждать реакции владельца.
+     *
+     *      Поколение targets здесь намеренно НЕ инкрементируется: без записи в
+     *      `sessionKeys` ключ не проходит валидацию, значит его список получателей
+     *      уже недостижим, а следующая выдача (`registerSessionKey`) в любом случае
+     *      начнёт новое поколение.
      */
     function revokeSessionKey(address signer) external {
         require(msg.sender == owner || msg.sender == signer, NotOwnerOrSessionKey(msg.sender));
 
         delete sessionKeys[signer];
         emit SessionKeyRevoked(signer);
+    }
+
+    /**
+     * @notice Разрешён ли `target` для ключа `signer` в его ТЕКУЩЕМ поколении.
+     * @dev Explicit-геттер с той же сигнатурой (и тем же селектором), что была у
+     *      публичного mapping `sessionKeyTargets` до перехода на поколения, — web-клиент
+     *      и ABI не меняются. Отличия в семантике: targets прошлых выдач ключа здесь
+     *      больше не видны, а для отозванного ключа возвращается false — чтобы off-chain
+     *      UI не показывал устаревшие разрешения.
+     */
+    function sessionKeyTargets(address signer, address target) external view returns (bool) {
+        return sessionKeys[signer].exists() && _sessionKeyTargets[signer][sessionKeyGeneration[signer]][target];
     }
 
     /// @notice Остаток бюджета ключа.

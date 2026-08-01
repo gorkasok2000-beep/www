@@ -60,6 +60,12 @@ contract SessionKeysTest is SynthWalletTest {
         list[0] = one;
     }
 
+    function _targets2(address one, address two) internal pure returns (address[] memory list) {
+        list = new address[](2);
+        list[0] = one;
+        list[1] = two;
+    }
+
     function _batchCalldata(BaseAccount.Call[] memory calls) internal pure returns (bytes memory) {
         return abi.encodeCall(AgentAccount.executeBatch, (calls));
     }
@@ -325,6 +331,121 @@ contract SessionKeysTest is SynthWalletTest {
             abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(entryPoint))
         );
         _handleOp(op);
+    }
+
+    // ------------------------------------------------------------------
+    // Поколения списков получателей: перевыпуск и отзыв ключа
+    // ------------------------------------------------------------------
+
+    /**
+     * @notice Перевыпуск ключа с более узким списком отрезает прежние разрешения.
+     * @dev До поколений targets жили в одном mapping: повторная выдача добавляла новые
+     *      адреса, но не снимала старые — сузить список, не отзывая ключ, было нельзя.
+     *      Теперь каждая выдача начинает новое поколение, и merchant из прошлой выдачи
+     *      отклоняется на валидации.
+     */
+    function test_ReRegisterReplacesAllowedTargets() public {
+        AgentAccount account = _registerAutonomous("orion");
+        vm.deal(address(account), 10 ether);
+
+        _grant(account, 1 ether, _targets(merchant));
+        assertEq(account.sessionKeyGeneration(platform), 1);
+
+        // Тот же signer, но список сужен до stranger — новое поколение.
+        _grant(account, 1 ether, _targets(stranger));
+        assertEq(account.sessionKeyGeneration(platform), 2);
+        assertFalse(account.sessionKeyTargets(platform, merchant));
+        assertTrue(account.sessionKeyTargets(platform, stranger));
+
+        PackedUserOperation memory op = _sessionOp(account, merchant, 0.1 ether);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, merchant)
+        );
+        _handleOp(op);
+
+        // А получатель из текущего поколения проходит.
+        _payAsSessionKey(account, stranger, 0.1 ether);
+
+        assertEq(stranger.balance, 0.1 ether);
+        assertEq(merchant.balance, 0);
+    }
+
+    /// @notice Отзыв с последующей выдачей не воскрешает targets старого списка:
+    ///         повторная регистрация в любом случае начинает новое поколение.
+    function test_RevokeAndReissueDoesNotResurrectOldTargets() public {
+        AgentAccount account = _registerAutonomous("orion");
+        vm.deal(address(account), 10 ether);
+
+        _grant(account, 1 ether, _targets(merchant));
+
+        vm.prank(agentOwner);
+        account.revokeSessionKey(platform);
+
+        // Revoke поколение не трогал, но повторная выдача инкрементирует его сама.
+        _grant(account, 1 ether, _targets(stranger));
+        assertEq(account.sessionKeyGeneration(platform), 2);
+        assertFalse(account.sessionKeyTargets(platform, merchant));
+
+        PackedUserOperation memory op = _sessionOp(account, merchant, 0.1 ether);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, merchant)
+        );
+        _handleOp(op);
+
+        _payAsSessionKey(account, stranger, 0.1 ether);
+
+        assertEq(stranger.balance, 0.1 ether);
+        assertEq(merchant.balance, 0);
+    }
+
+    /**
+     * @notice Геттер не показывает устаревшие разрешения отозванного ключа.
+     * @dev Revoke не инкрементирует поколение и не стирает targets в storage, поэтому
+     *      `sessionKeyTargets` дополнительно проверяет `sessionKeys[signer].exists()` —
+     *      иначе off-chain UI видел бы stale-разрешения, которыми ключ уже не может
+     *      воспользоваться.
+     */
+    function test_RevokedKeyHidesTargetsFromGetter() public {
+        AgentAccount account = _registerAutonomous("orion");
+
+        _grant(account, 1 ether, _targets(merchant));
+        assertTrue(account.sessionKeyTargets(platform, merchant));
+
+        vm.prank(agentOwner);
+        account.revokeSessionKey(platform);
+
+        assertFalse(account.sessionKeyTargets(platform, merchant));
+    }
+
+    /**
+     * @notice Гард self/EntryPoint важнее списка получателей.
+     * @dev Даже если владелец внёс кошелёк и EntryPoint в targets ТЕКУЩЕГО поколения,
+     *      ключ всё равно не может их вызвать: проверка `target != address(this) &&
+     *      target != entryPoint()` стоит первой и не зависит от поколений.
+     */
+    function test_RevertWhen_RestrictedKeyCallsListedSelfAndEntryPoint() public {
+        AgentAccount account = _registerAutonomous("orion");
+        vm.deal(address(account), 10 ether);
+
+        _grant(account, 1 ether, _targets2(address(account), address(entryPoint)));
+        assertTrue(account.sessionKeyTargets(platform, address(account)));
+        assertTrue(account.sessionKeyTargets(platform, address(entryPoint)));
+
+        PackedUserOperation memory opSelf = _sessionOp(account, address(account), 0);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
+        );
+        _handleOp(opSelf);
+
+        bytes memory inner = abi.encodeCall(IStakeManager.withdrawTo, (payable(platform), 1 ether));
+        PackedUserOperation memory opEntryPoint =
+            _signedUserOp(address(account), _executeCalldata(address(entryPoint), 0, inner), platformKey);
+        _expectValidationRevert(
+            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(entryPoint))
+        );
+        _handleOp(opEntryPoint);
+
+        assertEq(account.sessionKeyRemaining(platform), 1 ether);
     }
 
     // ------------------------------------------------------------------
