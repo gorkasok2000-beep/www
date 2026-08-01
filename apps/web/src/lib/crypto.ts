@@ -58,6 +58,22 @@ export function hashApiKey(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
 }
 
+/**
+ * Отпечаток тела запроса для идемпотентности.
+ *
+ * Сравнивается не сам текст запроса, а нормализованные значения: регистр адреса и
+ * порядок полей не должны превращать честный повтор в конфликт, а изменение суммы —
+ * обязано.
+ */
+export function hashRequest(parts: Record<string, string>): string {
+  const canonical = Object.keys(parts)
+    .sort()
+    .map((key) => `${key}=${parts[key].toLowerCase()}`)
+    .join("&");
+
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
 /** Сравнение хешей за постоянное время — чтобы не подсказывать ключ по таймингу. */
 export function safeEqualHex(a: string, b: string): boolean {
   const bufferA = Buffer.from(a, "hex");

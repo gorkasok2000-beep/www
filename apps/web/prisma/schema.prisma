@@ -48,8 +48,84 @@ model Agent {
 
   createdAt DateTime @default(now())
 
-  transactions TransactionLog[]
-  sessionKeys  SessionKey[]
+  transactions    TransactionLog[]
+  sessionKeys     SessionKey[]
+  payments        Payment[]
+  issuedInvoices  Invoice[]       @relation("IssuedInvoices")
+}
+
+/// Платёж как объект с идентификатором и состоянием, а не как факт «запрос вернул 201».
+///
+/// Агент ретраит по своему усмотрению и человека в цикле нет, поэтому повтор запроса
+/// не должен превращаться во вторую трату. Ключ идемпотентности вместе с хешом тела
+/// пишется ДО отправки операции: пока записи нет, платёж не начат; как только она есть,
+/// повтор с тем же ключом вернёт её, а не отправит вторую операцию.
+model Payment {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Значение заголовка Idempotency-Key. Уникален в пределах агента.
+  idempotencyKey String
+
+  /// sha256 канонизированного тела запроса. Отличает честный повтор от нового
+  /// запроса, которому по ошибке достался уже использованный ключ.
+  requestHash String
+
+  to       String
+  valueWei String
+  data     String @default("0x")
+
+  /// CREATED — запись есть, в сеть ничего не ушло.
+  /// SUBMITTED — операция подписана и отправлена, известен userOpHash.
+  /// CONFIRMED — найден UserOperationEvent с success = true.
+  /// FAILED — отвергнута на валидации либо исполнение не удалось.
+  status String @default("CREATED")
+
+  /// Известен ДО отправки: операция уже собрана и подписана. Благодаря этому
+  /// «повисший» платёж можно найти в логах EntryPoint, даже не зная txHash.
+  userOpHash    String?
+  txHash        String?
+  failureReason String?
+
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, status])
+}
+
+/// Счёт: платёж, инициированный получателем.
+///
+/// Агент видит сумму, адрес и назначение, решает, платить ли, и платит по идентификатору
+/// счёта. Идемпотентность здесь получается бесплатно: у счёта одна оплата, повторный
+/// запрос возвращает первый результат.
+model Invoice {
+  id String @id @default(cuid())
+
+  /// Кто выставил. Оплатить счёт можно, не зная выставившего, поэтому связь необязательна.
+  issuerAgentId String?
+  issuer        Agent?  @relation("IssuedInvoices", fields: [issuerAgentId], references: [id], onDelete: SetNull)
+
+  /// Адрес получателя средств.
+  to       String
+  valueWei String
+  memo     String?
+
+  /// OPEN | PAID | EXPIRED | CANCELLED
+  status    String   @default("OPEN")
+  expiresAt DateTime
+
+  payments Payment[]
+
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  @@index([issuerAgentId, status])
 }
 
 /// Ключ ограниченного доступа, выданный платформе владельцем кошелька.

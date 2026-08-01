@@ -101,6 +101,33 @@ export function parseSignerUrl(value: unknown): string | undefined {
   return url.toString();
 }
 
+/**
+ * Ключ идемпотентности из заголовка `Idempotency-Key`.
+ *
+ * Обязателен для платежа — и это не формальность. Агент повторяет запрос сам, по своей
+ * логике ретраев, и без ключа второй запрос стал бы вторым платежом: заметить это
+ * некому, человека в цикле нет.
+ *
+ * Исключение — оплата по счёту: там ключом служит идентификатор самого счёта.
+ */
+export function parseIdempotencyKey(request: Request): string {
+  const key = request.headers.get("idempotency-key")?.trim();
+
+  if (!key) {
+    throw new AgentError(
+      "Нужен заголовок Idempotency-Key: без него повтор запроса стал бы вторым платежом. " +
+        "Подойдёт любая уникальная строка, например crypto.randomUUID().",
+      400,
+    );
+  }
+
+  if (key.length > 128) {
+    throw new AgentError("Idempotency-Key длиннее 128 символов.", 400);
+  }
+
+  return key;
+}
+
 export function parseWhitelist(value: unknown): Address[] {
   if (value === undefined || value === null) {
     return [];

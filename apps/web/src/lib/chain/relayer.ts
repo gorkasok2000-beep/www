@@ -8,7 +8,12 @@ import {operatorAddress, operatorClient, publicClient} from "./clients";
 import {activeChain, deployment} from "./config";
 import {estimateFees} from "./gas";
 import type {Signer} from "./signer";
-import {buildUserOperation, signUserOperation, type PackedUserOperation} from "./userOperation";
+import {
+  buildUserOperation,
+  signUserOperation,
+  userOperationHash,
+  type PackedUserOperation,
+} from "./userOperation";
 
 /**
  * Отправка UserOperation в сеть.
@@ -113,16 +118,20 @@ export function bundler(): Bundler {
 }
 
 /**
- * Полный путь операции агента: собрать, подписать, отправить, убедиться, что отработала.
+ * Собирает и подписывает операцию, но НЕ отправляет.
+ *
+ * Разделение нужно платежам: `userOpHash` известен уже здесь, до отправки. Записав его
+ * в платёж заранее, мы получаем возможность найти операцию в логах EntryPoint, даже если
+ * процесс умрёт сразу после отправки и `txHash` записать не успеет.
  *
  * Чем именно подписано — забота `Signer`: главным ключом с сервера, session key
- * платформы или эндпоинтом самого агента. Отправка от этого не зависит.
+ * платформы или эндпоинтом самого агента.
  */
-export async function sendAgentUserOperation(params: {
+export async function prepareAgentUserOperation(params: {
   sender: Address;
   callData: Hex;
   signer: Signer;
-}): Promise<{txHash: Hex}> {
+}): Promise<{userOp: PackedUserOperation; userOpHash: Hex}> {
   const {maxFeePerGas, maxPriorityFeePerGas} = await estimateFees();
 
   const userOp = await buildUserOperation({
@@ -133,7 +142,28 @@ export async function sendAgentUserOperation(params: {
   });
 
   const signed = await signUserOperation(userOp, params.signer);
-  const result = await bundler().send(signed);
+
+  return {userOp: signed, userOpHash: await userOperationHash(signed)};
+}
+
+/** Отправка подписанной операции: локальный `handleOps` либо настоящий бандлер. */
+export async function submitUserOperation(
+  userOp: PackedUserOperation,
+): Promise<{txHash: Hex}> {
+  return bundler().send(userOp);
+}
+
+/**
+ * Полный путь операции агента: собрать, подписать, отправить, убедиться, что отработала.
+ * Используется там, где отдельного объекта платежа нет.
+ */
+export async function sendAgentUserOperation(params: {
+  sender: Address;
+  callData: Hex;
+  signer: Signer;
+}): Promise<{txHash: Hex}> {
+  const {userOp} = await prepareAgentUserOperation(params);
+  const result = await submitUserOperation(userOp);
 
   await assertUserOperationSucceeded(result.txHash);
   return result;
@@ -148,17 +178,22 @@ const USER_OPERATION_EVENTS = [
   ),
 ] as const;
 
+export type UserOperationOutcome = {
+  success: boolean;
+  revertReason?: Hex;
+};
+
 /**
- * Проверяет, что операция не только попала в блок, но и отработала.
+ * Чем кончилась операция по данным её транзакции.
  *
  * В ERC-4337 неудачное исполнение НЕ откатывает транзакцию: EntryPoint ловит revert,
- * списывает газ и отмечает операцию как `success: false`. Без этой проверки API
- * отвечал бы «оплачено» на трату, которую контракт на самом деле отклонил.
+ * списывает газ и отмечает операцию как `success: false`. Поэтому «транзакция в блоке»
+ * и «платёж прошёл» — разные вещи, и различать их приходится по событиям.
  */
-export async function assertUserOperationSucceeded(txHash: Hex): Promise<void> {
+export async function readUserOperationOutcome(txHash: Hex): Promise<UserOperationOutcome> {
   const receipt = await publicClient().getTransactionReceipt({hash: txHash});
 
-  let failed = false;
+  let success = true;
   let revertReason: Hex | undefined;
 
   for (const log of receipt.logs) {
@@ -170,7 +205,7 @@ export async function assertUserOperationSucceeded(txHash: Hex): Promise<void> {
       });
 
       if (decoded.eventName === "UserOperationEvent" && decoded.args.success === false) {
-        failed = true;
+        success = false;
       }
       if (decoded.eventName === "UserOperationRevertReason") {
         revertReason = decoded.args.revertReason;
@@ -180,7 +215,50 @@ export async function assertUserOperationSucceeded(txHash: Hex): Promise<void> {
     }
   }
 
-  if (failed) {
+  return {success, revertReason};
+}
+
+/**
+ * Ищет операцию по её хешу в логах EntryPoint.
+ *
+ * Нужно для сверки платежей, у которых `txHash` записать не успели: `userOpHash` известен
+ * до отправки, и по нему операцию всегда можно найти. Возвращает `null`, если операции в
+ * сети нет — это не то же самое, что «не прошла»: она могла быть отвергнута бандлером и
+ * вообще не попасть в блок.
+ */
+export async function findUserOperationByHash(
+  userOpHash: Hex,
+  fromBlock: bigint = 0n,
+): Promise<({txHash: Hex} & UserOperationOutcome) | null> {
+  const {entryPoint} = deployment();
+
+  const logs = await publicClient().getLogs({
+    address: entryPoint,
+    event: USER_OPERATION_EVENTS[0],
+    args: {userOpHash},
+    fromBlock,
+    toBlock: "latest",
+  });
+
+  const found = logs.at(-1);
+  if (!found) {
+    return null;
+  }
+
+  // Причину отказа несёт соседнее событие в той же транзакции, поэтому за ней идём
+  // в чек, а не в этот лог.
+  const outcome = await readUserOperationOutcome(found.transactionHash);
+  return {txHash: found.transactionHash, ...outcome};
+}
+
+/**
+ * Проверяет, что операция не только попала в блок, но и отработала.
+ *
+ * Без этой проверки API отвечал бы «оплачено» на трату, которую контракт отклонил.
+ */
+export async function assertUserOperationSucceeded(txHash: Hex): Promise<void> {
+  const {success, revertReason} = await readUserOperationOutcome(txHash);
+  if (!success) {
     throw fromRevertData(revertReason);
   }
 }

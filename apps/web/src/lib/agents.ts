@@ -6,8 +6,6 @@ import type {Agent} from "@/generated/prisma";
 import {AgentError} from "./agent-error";
 import {toAgentError} from "./chain/errors";
 import {syncTransactionLogs} from "./chain/indexer";
-import {encodeExecute} from "./chain/userOperation";
-import {sendAgentUserOperation} from "./chain/relayer";
 import {
   NO_RULES,
   readAgentState,
@@ -22,7 +20,7 @@ import {
 import {localSigner, remoteSigner, type Signer, type SignerMode} from "./chain/signer";
 import {decryptSecret, encryptSecret, generateApiKey, hashApiKey} from "./crypto";
 import {db} from "./db";
-import {activeSessionKeyRecord, assertSessionKeyAllows} from "./session-keys";
+import {activeSessionKeyRecord} from "./session-keys";
 
 /** Два сценария из ТЗ. Значения совпадают с порядком enum `AgentMode` в контракте. */
 export const AGENT_MODES = ["HUMAN_CUSTODIAN", "AUTONOMOUS_ENTITY"] as const;
@@ -172,59 +170,6 @@ export async function signerFor(agent: Agent): Promise<Signer> {
     default:
       throw new AgentError(`Неизвестный режим подписи ${agent.signerMode}.`, 500);
   }
-}
-
-/**
- * Агент сам инициирует оплату — центральный сценарий ТЗ.
- *
- * Никаких подтверждений от человека: правила уже зашиты в контракт, и именно он
- * решает, пропустить трату или откатить её.
- */
-export async function sendPayment(
-  agent: Agent,
-  params: {to: Address; valueWei: bigint; data?: Hex},
-): Promise<{txHash: Hex}> {
-  const signer = await signerFor(agent);
-  const account = agent.accountAddress as Address;
-  const data = params.data ?? "0x";
-
-  // Сначала сухой прогон: если правило нарушено, агент узнаёт причину до траты газа.
-  // Симулируем от имени владельца — контракт разрешает ему тот же путь, что и EntryPoint,
-  // поэтому проверяются ровно те же правила кошелька. Границы session key сюда не входят:
-  // их контракт применяет на фазе валидации, и они видны в остатке бюджета ключа.
-  try {
-    await simulateExecute({
-      account,
-      owner: agent.ownerAddress as Address,
-      to: params.to,
-      valueWei: params.valueWei,
-      data,
-    });
-  } catch (error) {
-    throw toAgentError(error);
-  }
-
-  // Границы session key контракт проверяет на фазе валидации, куда сухой прогон `execute`
-  // не заглядывает. Проверяем их отдельно — чтением состояния ключа, до отправки.
-  if (signer.mode === "SESSION_KEY") {
-    await assertSessionKeyAllows({
-      account,
-      signer: signer.address,
-      to: params.to,
-      valueWei: params.valueWei,
-    });
-  }
-
-  const result = await sendAgentUserOperation({
-    sender: account,
-    callData: encodeExecute(params.to, params.valueWei, data),
-    signer,
-  });
-
-  // Сразу подтягиваем свежий лог, чтобы транзакция появилась в дашборде без задержки.
-  await syncTransactionLogs();
-
-  return result;
 }
 
 function requireCustodianKey(agent: Agent): Hex {

@@ -32,7 +32,13 @@ export function WalletActions({frozen}: {frozen: boolean}) {
     try {
       const response = await fetch(path, {
         method: "POST",
-        headers: {"content-type": "application/json"},
+        headers: {
+          "content-type": "application/json",
+          // Платёж требует ключа идемпотентности: двойной клик или повтор запроса
+          // не должны превращаться во вторую трату. Ключ живёт ровно одну попытку —
+          // после отказа кнопка создаёт новый.
+          ...(kind === "send" ? {"idempotency-key": crypto.randomUUID()} : {}),
+        },
         body: JSON.stringify(body),
       });
 
