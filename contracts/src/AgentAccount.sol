@@ -406,7 +406,8 @@ contract AgentAccount is SimpleAccount {
      *      UI не показывал устаревшие разрешения.
      */
     function sessionKeyTargets(address signer, address target) external view returns (bool) {
-        return sessionKeys[signer].exists() && _sessionKeyTargets[signer][sessionKeyGeneration[signer]][target];
+        return
+            sessionKeys[signer].exists() && _sessionKeyTargets[signer][sessionKeyGeneration[signer]][target];
     }
 
     /// @notice Остаток бюджета ключа.
@@ -429,11 +430,7 @@ contract AgentAccount is SimpleAccount {
      *      в account-abstraction v0.9.0 `SimpleAccount._authorizeUpgrade` объявлен
      *      БЕЗ `virtual`, поэтому переопределить его в наследнике нельзя.
      */
-    function upgradeToAndCall(address newImplementation, bytes memory data)
-        public
-        payable
-        override
-    {
+    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override {
         require(!frozen, AccountFrozen());
         super.upgradeToAndCall(newImplementation, data);
     }

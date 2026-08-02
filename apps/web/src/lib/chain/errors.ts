@@ -66,6 +66,14 @@ function describe(errorName: string | undefined, args: readonly unknown[] = []):
       );
     case "HandleAlreadyTaken":
       return new AgentError("Такое имя агента уже занято.", 409);
+    case "AgentAlreadyRegistered": {
+      const [account] = args as [string];
+      return new AgentError(
+        `Кошелёк ${account} уже зарегистрирован. Адрес выводится из имени агента и его ` +
+          "параметров, поэтому для нового кошелька нужно другое имя.",
+        409,
+      );
+    }
     case "EmptyHandle":
       return new AgentError("Имя агента не может быть пустым.", 400);
     case undefined:

@@ -24,6 +24,10 @@ model Agent {
   /// Адрес ERC-4337 кошелька.
   accountAddress String @unique
 
+  /// Соль CREATE2, из которой посчитан адрес. Выводится из handle, хранится ради
+  /// воспроизводимости: по ней адрес пересчитывается без обращения к сети.
+  salt String @default("0")
+
   /// EOA, которым агент подписывает UserOperation.
   ownerAddress String
 

@@ -13,10 +13,16 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "db:push": "pnpm --filter web db:push",
-    "demo": "pnpm --filter web exec tsx ../../examples/agent-demo.ts"
+    "demo": "pnpm --filter web exec tsx ../../examples/agent-demo.ts",
+    "e2e": "node scripts/e2e.mjs",
+    "check-env": "node scripts/check-env.mjs",
+    "bootstrap": "node scripts/bootstrap.mjs"
   },
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "viem": "^2.55.10"
+  }
 }

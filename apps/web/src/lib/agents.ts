@@ -1,4 +1,4 @@
-import {zeroAddress, type Address, type Hex} from "viem";
+import {keccak256, toHex, zeroAddress, type Address, type Hex} from "viem";
 import {generatePrivateKey, privateKeyToAccount} from "viem/accounts";
 
 import type {Agent} from "@/generated/prisma";
@@ -91,6 +91,13 @@ export async function createAgent(params: {
   const custodianKey = isCustodial ? generatePrivateKey() : undefined;
   const custodian = custodianKey ? privateKeyToAccount(custodianKey).address : zeroAddress;
 
+  // Соль детерминирована по handle, а не ноль. С нулевой солью адрес кошелька
+  // определялся только параметрами инициализации, поэтому второй агент того же
+  // владельца с теми же правилами получал ТОТ ЖЕ адрес — и упирался в запрет
+  // повторной регистрации в реестре. Соль от имени разводит такие кошельки и при
+  // этом остаётся воспроизводимой: адрес можно пересчитать, зная только handle.
+  const salt = saltForHandle(handle);
+
   let account: Address;
   try {
     ({account} = await registerAgentOnchain({
@@ -99,7 +106,7 @@ export async function createAgent(params: {
       custodian,
       rules: isCustodial ? (params.rules ?? NO_RULES) : NO_RULES,
       whitelist: isCustodial ? (params.whitelist ?? []) : [],
-      salt: 0n,
+      salt,
     }));
   } catch (error) {
     throw toAgentError(error);
@@ -107,22 +114,44 @@ export async function createAgent(params: {
 
   const apiKey = generateApiKey();
 
-  const agent = await db.agent.create({
-    data: {
-      handle,
-      mode: params.mode,
-      accountAddress: account,
-      ownerAddress: owner,
-      signerMode,
-      ownerKeyCiphertext: ownerKey ? encryptSecret(ownerKey) : null,
-      signerUrl: params.signerUrl ?? null,
-      custodianAddress: custodianKey ? custodian : null,
-      custodianKeyCiphertext: custodianKey ? encryptSecret(custodianKey) : null,
-      apiKeyHash: hashApiKey(apiKey),
-    },
-  });
+  // Кошелёк уже создан в сети, а запись ещё нет: если создание записи упадёт (например,
+  // на уникальности `accountAddress`), наружу должен уйти внятный конфликт, а не 500 с
+  // деталями базы. Ончейн-состояние при этом остаётся источником истины.
+  const agent = await db.agent
+    .create({
+      data: {
+        handle,
+        mode: params.mode,
+        accountAddress: account,
+        salt: salt.toString(),
+        ownerAddress: owner,
+        signerMode,
+        ownerKeyCiphertext: ownerKey ? encryptSecret(ownerKey) : null,
+        signerUrl: params.signerUrl ?? null,
+        custodianAddress: custodianKey ? custodian : null,
+        custodianKeyCiphertext: custodianKey ? encryptSecret(custodianKey) : null,
+        apiKeyHash: hashApiKey(apiKey),
+      },
+    })
+    .catch(() => {
+      throw new AgentError(
+        `Кошелёк ${account} уже зарегистрирован в системе. ` +
+          "Выберите другое имя агента: адрес кошелька выводится из него.",
+        409,
+      );
+    });
 
   return {agent, apiKey};
+}
+
+/**
+ * Соль CREATE2 для кошелька агента.
+ *
+ * Берётся из имени: одинаковое имя даёт одинаковый адрес в любой сети, разные имена —
+ * разные кошельки даже у одного владельца с одинаковыми правилами.
+ */
+export function saltForHandle(handle: string): bigint {
+  return BigInt(keccak256(toHex(handle.trim().toLowerCase())));
 }
 
 export async function findAgentByApiKey(apiKey: string): Promise<Agent | null> {

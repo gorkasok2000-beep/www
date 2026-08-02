@@ -1,0 +1,72 @@
+name: CI
+
+# Прототип долго собирался только на машине автора: сабмодули, Foundry, генерация ABI и
+# клиента Prisma — четыре шага, каждый из которых легко пропустить. Этот workflow
+# проверяет ровно то, что должно работать на чистом клоне.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  contracts:
+    name: Контракты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Форматирование
+        run: forge fmt --check --root contracts
+
+      - name: Тесты
+        run: forge test --root contracts -vv
+
+  web:
+    name: Приложение
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # ABI переносится из свежесобранных контрактов: если он разошёлся с исходниками,
+      # приложение не сможет расшифровать новые ошибки контракта, а тесты этого не увидят.
+      - name: ABI соответствует контрактам
+        run: |
+          forge build --root contracts
+          node scripts/export-abi.mjs
+          git diff --exit-code apps/web/src/lib/chain/abis.ts \
+            || (echo "::error::abis.ts устарел — выполните node scripts/export-abi.mjs" && exit 1)
+
+      - name: Клиент Prisma
+        run: pnpm --filter web exec prisma generate
+
+      - name: Типы
+        run: pnpm --filter web exec tsc --noEmit
+
+      - name: Сборка
+        run: pnpm --filter web build
+
+      # Демо собирается из demo/src/*.js и коммитится готовым файлом (docs/index.html —
+      # точка входа GitHub Pages). Проверяем, что закоммиченная сборка не отстала.
+      - name: Демо собрано из актуальных исходников
+        run: |
+          node demo/build.mjs
+          node demo/check-classes.mjs
+          git diff --exit-code demo/synth-wallet-demo.html docs/index.html \
+            || (echo "::error::демо устарело — выполните node demo/build.mjs" && exit 1)

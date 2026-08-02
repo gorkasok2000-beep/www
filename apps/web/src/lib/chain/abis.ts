@@ -453,6 +453,25 @@ export const agentAccountAbi = [
   },
   {
     "type": "function",
+    "name": "sessionKeyGeneration",
+    "inputs": [
+      {
+        "name": "signer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "sessionKeyRemaining",
     "inputs": [
       {
@@ -1989,6 +2008,17 @@ export const agentRegistryAbi = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AgentAlreadyRegistered",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

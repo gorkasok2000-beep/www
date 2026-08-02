@@ -11,6 +11,7 @@ contracts/deployments/*.json
 
 # next.js
 .next/
+*.tsbuildinfo
 out/
 build/
 next-env.d.ts

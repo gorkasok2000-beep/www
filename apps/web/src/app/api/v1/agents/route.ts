@@ -79,6 +79,9 @@ export const POST = route(async (request) => {
   response.cookies.set(API_KEY_COOKIE, apiKey, {
     httpOnly: true,
     sameSite: "lax",
+    // В проде кука уходит только по HTTPS. Локально её пришлось бы отключать: по http
+    // браузер `secure`-куку просто не сохранит, и дашборд не открылся бы после регистрации.
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
