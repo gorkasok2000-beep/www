@@ -162,10 +162,10 @@ export async function sendAgentUserOperation(params: {
   callData: Hex;
   signer: Signer;
 }): Promise<{txHash: Hex}> {
-  const {userOp} = await prepareAgentUserOperation(params);
+  const {userOp, userOpHash} = await prepareAgentUserOperation(params);
   const result = await submitUserOperation(userOp);
 
-  await assertUserOperationSucceeded(result.txHash);
+  await assertUserOperationSucceeded(result.txHash, userOpHash);
   return result;
 }
 
@@ -189,10 +189,25 @@ export type UserOperationOutcome = {
  * В ERC-4337 неудачное исполнение НЕ откатывает транзакцию: EntryPoint ловит revert,
  * списывает газ и отмечает операцию как `success: false`. Поэтому «транзакция в блоке»
  * и «платёж прошёл» — разные вещи, и различать их приходится по событиям.
+ *
+ * Смотрим только СВОЮ операцию: бандлер пакует в одну транзакцию операции разных
+ * отправителей, и чужой `UserOperationEvent` с `success: false` не говорит ничего о
+ * нашей. Поэтому события фильтруются по `userOpHash`, а «нашей операции в чеке нет» —
+ * это `null` (неизвестно), а не успех: полный revert бандла оставляет чек без событий
+ * вообще. `null` читается как «операцию ищет сверка», а не как «платёж не прошёл».
  */
-export async function readUserOperationOutcome(txHash: Hex): Promise<UserOperationOutcome> {
+export async function readUserOperationOutcome(
+  txHash: Hex,
+  userOpHash: Hex,
+): Promise<UserOperationOutcome | null> {
   const receipt = await publicClient().getTransactionReceipt({hash: txHash});
 
+  // Транзакция бандлера откатилась целиком — ни чьих операций в ней не исполнилось.
+  if (receipt.status !== "success") {
+    return null;
+  }
+
+  let found = false;
   let success = true;
   let revertReason: Hex | undefined;
 
@@ -204,8 +219,15 @@ export async function readUserOperationOutcome(txHash: Hex): Promise<UserOperati
         topics: log.topics,
       });
 
-      if (decoded.eventName === "UserOperationEvent" && decoded.args.success === false) {
-        success = false;
+      if (decoded.args.userOpHash !== userOpHash) {
+        continue;
+      }
+
+      if (decoded.eventName === "UserOperationEvent") {
+        found = true;
+        if (decoded.args.success === false) {
+          success = false;
+        }
       }
       if (decoded.eventName === "UserOperationRevertReason") {
         revertReason = decoded.args.revertReason;
@@ -215,7 +237,7 @@ export async function readUserOperationOutcome(txHash: Hex): Promise<UserOperati
     }
   }
 
-  return {success, revertReason};
+  return found ? {success, revertReason} : null;
 }
 
 /**
@@ -247,7 +269,10 @@ export async function findUserOperationByHash(
 
   // Причину отказа несёт соседнее событие в той же транзакции, поэтому за ней идём
   // в чек, а не в этот лог.
-  const outcome = await readUserOperationOutcome(found.transactionHash);
+  const outcome = await readUserOperationOutcome(found.transactionHash, userOpHash);
+  if (!outcome) {
+    return null;
+  }
   return {txHash: found.transactionHash, ...outcome};
 }
 
@@ -256,9 +281,12 @@ export async function findUserOperationByHash(
  *
  * Без этой проверки API отвечал бы «оплачено» на трату, которую контракт отклонил.
  */
-export async function assertUserOperationSucceeded(txHash: Hex): Promise<void> {
-  const {success, revertReason} = await readUserOperationOutcome(txHash);
-  if (!success) {
-    throw fromRevertData(revertReason);
+export async function assertUserOperationSucceeded(txHash: Hex, userOpHash: Hex): Promise<void> {
+  const outcome = await readUserOperationOutcome(txHash, userOpHash);
+  if (!outcome) {
+    throw new Error(`Операция ${userOpHash} не найдена в транзакции ${txHash}.`);
+  }
+  if (!outcome.success) {
+    throw fromRevertData(outcome.revertReason);
   }
 }

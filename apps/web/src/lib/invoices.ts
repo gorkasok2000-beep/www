@@ -70,6 +70,8 @@ export async function requirePayableInvoice(id: string): Promise<Invoice> {
   switch (invoice.status) {
     case "OPEN":
       return invoice;
+    case "PAYING":
+      throw new AgentError(`Счёт ${id} уже оплачивается другим платежом.`, 409);
     case "PAID":
       throw new AgentError(`Счёт ${id} уже оплачен.`, 409);
     case "EXPIRED":

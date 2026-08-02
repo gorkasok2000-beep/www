@@ -12,6 +12,7 @@ import {
   prepareAgentUserOperation,
   readUserOperationOutcome,
   submitUserOperation,
+  type UserOperationOutcome,
 } from "./chain/relayer";
 import {encodeExecute} from "./chain/userOperation";
 import {hashRequest} from "./crypto";
@@ -44,6 +45,12 @@ export type PaymentInput = {
 /** Промежуточные состояния: платёж начат, чем кончился — ещё неизвестно. */
 const IN_FLIGHT = ["CREATED", "SUBMITTED"];
 
+/**
+ * Сколько платёж может оставаться в CREATED. Дольше — значит процесс упал между
+ * созданием записи и отправкой: сеть такой платёж не видела и уже не увидит.
+ */
+const CREATED_TTL_MS = 5 * 60 * 1000;
+
 export async function payWithIdempotency(
   agent: Agent,
   input: PaymentInput,
@@ -61,37 +68,82 @@ export async function payWithIdempotency(
   });
 
   if (existing) {
-    return {payment: assertSameRequest(existing, requestHash), replayed: true};
+    const checked = assertSameRequest(existing, requestHash);
+    if (isStaleCreated(checked)) {
+      // «Зомби» от упавшего процесса не должен ни блокировать агента, ни возвращаться
+      // ретраем как живой: гасим его в FAILED, и новая попытка пойдёт с новым ключом.
+      return {payment: await expireCreated(db, checked), replayed: true};
+    }
+    return {payment: checked, replayed: true};
   }
 
   // Два платежа одного кошелька, идущие одновременно, взяли бы один и тот же нонс, и
   // второй развалился бы на валидации. Менеджер нонсов — за рамками прототипа, поэтому
-  // честный отказ вместо непонятной ошибки из EntryPoint.
-  const inFlight = await db.payment.findFirst({
-    where: {agentId: agent.id, status: {in: IN_FLIGHT}},
-  });
-  if (inFlight) {
-    throw new AgentError(
-      `Предыдущий платёж ${inFlight.id} ещё выполняется. Дождитесь его завершения: ` +
-        "GET /api/v1/agents/me/payments/" + inFlight.id,
-      409,
-    );
-  }
-
+  // честный отказ вместо непонятной ошибки из EntryPoint. Проверка и создание идут в
+  // одной транзакции, иначе два конкурентных запроса оба проходили проверку до того,
+  // как хоть один успевал создать запись.
   let payment: Payment;
   try {
-    payment = await db.payment.create({
-      data: {
-        agentId: agent.id,
-        idempotencyKey: input.idempotencyKey,
-        requestHash,
-        to: input.to,
-        valueWei: input.valueWei.toString(),
-        data,
-        invoiceId: input.invoiceId ?? null,
-      },
+    payment = await db.$transaction(async (tx) => {
+      // SQLite допускает лишь одного писателя на всю базу: эта формальная запись
+      // захватывает writer-lock до конца транзакции, и параллельный платёж того же
+      // агента увидит нашу строку вместо того, чтобы проскочить с тем же нонсом.
+      await tx.$executeRaw`UPDATE "Agent" SET "id" = "id" WHERE "id" = ${agent.id}`;
+
+      // CREATED старше TTL — следы процессов, упавших между созданием записи и
+      // отправкой: сеть их не видела. Гасим их в FAILED и освобождаем счета, иначе
+      // такой «зомби» навсегда блокировал бы агента ответом 409.
+      const stale = await tx.payment.findMany({
+        where: {
+          agentId: agent.id,
+          status: "CREATED",
+          createdAt: {lt: new Date(Date.now() - CREATED_TTL_MS)},
+        },
+      });
+      for (const zombie of stale) {
+        await expireCreated(tx, zombie);
+      }
+
+      const inFlight = await tx.payment.findFirst({
+        where: {agentId: agent.id, status: {in: IN_FLIGHT}},
+      });
+      if (inFlight) {
+        throw new AgentError(
+          `Предыдущий платёж ${inFlight.id} ещё выполняется. Дождитесь его завершения: ` +
+            "GET /api/v1/agents/me/payments/" + inFlight.id,
+          409,
+        );
+      }
+
+      // Оплату счёта нельзя начать дважды: захват OPEN -> PAYING атомарен, и второй
+      // претендент (хоть этот же агент, хоть другой) получит count = 0. Счёт вернётся
+      // в OPEN, если платёж заведомо не прошёл.
+      if (input.invoiceId) {
+        const captured = await tx.invoice.updateMany({
+          where: {id: input.invoiceId, status: "OPEN"},
+          data: {status: "PAYING"},
+        });
+        if (captured.count === 0) {
+          throw new AgentError(`Счёт ${input.invoiceId} уже оплачен или оплачивается.`, 409);
+        }
+      }
+
+      return tx.payment.create({
+        data: {
+          agentId: agent.id,
+          idempotencyKey: input.idempotencyKey,
+          requestHash,
+          to: input.to,
+          valueWei: input.valueWei.toString(),
+          data,
+          invoiceId: input.invoiceId ?? null,
+        },
+      });
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof AgentError) {
+      throw error;
+    }
     // Гонка: параллельный запрос с тем же ключом успел создать запись первым.
     const raced = await db.payment.findUnique({
       where: {agentId_idempotencyKey: {agentId: agent.id, idempotencyKey: input.idempotencyKey}},
@@ -103,6 +155,37 @@ export async function payWithIdempotency(
   }
 
   return {payment: await execute(agent, payment), replayed: false};
+}
+
+/** CREATED старше TTL — не живой платёж, а след процесса, упавшего до отправки. */
+function isStaleCreated(payment: Payment): boolean {
+  return payment.status === "CREATED" && Date.now() - payment.createdAt.getTime() > CREATED_TTL_MS;
+}
+
+/**
+ * Гасит «зомби»-платёж: CREATED, которому процесс не дал дойти до отправки. Сеть его
+ * не видела, поэтому честный итог — FAILED; захваченный счёт возвращается в OPEN.
+ */
+async function expireCreated(
+  client: Pick<typeof db, "payment" | "invoice">,
+  payment: Payment,
+): Promise<Payment> {
+  // updateMany с условием на статус, а не update: если платёж всё-таки жив и уже
+  // ушёл в SUBMITTED, гасить его нельзя — сеть могла его увидеть.
+  const expired = await client.payment.updateMany({
+    where: {id: payment.id, status: "CREATED"},
+    data: {
+      status: "FAILED",
+      failureReason: "Платёж не отправлен: обработка прервана до отправки в сеть.",
+    },
+  });
+  if (expired.count > 0 && payment.invoiceId) {
+    await client.invoice.updateMany({
+      where: {id: payment.invoiceId, status: "PAYING"},
+      data: {status: "OPEN"},
+    });
+  }
+  return client.payment.findUniqueOrThrow({where: {id: payment.id}});
 }
 
 function assertSameRequest(payment: Payment, requestHash: string): Payment {
@@ -120,9 +203,14 @@ function assertSameRequest(payment: Payment, requestHash: string): Payment {
 /**
  * Выполняет уже созданный платёж.
  *
- * Любая ошибка после создания записи переводит платёж в `FAILED` с причиной: запись
- * не должна оставаться в `CREATED`, иначе агент не отличит «не начинали» от «не смогли».
- * Повтор с тем же ключом вернёт `FAILED` — для новой попытки нужен новый ключ.
+ * Жизненный цикл разделён на две фазы, и ошибки в них стоят по-разному:
+ *
+ *   - ДО отправки (симуляция, сборка, подпись) сеть платёж не видела, поэтому любая
+ *     ошибка честно переводит его в FAILED с причиной, а захваченный счёт возвращается
+ *     в OPEN. Повтор с тем же ключом вернёт FAILED — для новой попытки нужен новый ключ;
+ *   - ПОСЛЕ отправки ошибка статуса НЕ меняет: операция могла уйти в сеть, и ложный
+ *     FAILED спровоцирует агента заплатить второй раз. Платёж остаётся SUBMITTED,
+ *     и правду о нём скажет сверка с блокчейном (`reconcilePayments`).
  */
 async function execute(agent: Agent, payment: Payment): Promise<Payment> {
   const account = agent.accountAddress as Address;
@@ -130,6 +218,8 @@ async function execute(agent: Agent, payment: Payment): Promise<Payment> {
   const valueWei = BigInt(payment.valueWei);
   const data = payment.data as Hex;
 
+  // Фаза 1 — до отправки.
+  let prepared: Awaited<ReturnType<typeof prepareAgentUserOperation>>;
   try {
     const signer = await signerFor(agent);
 
@@ -146,43 +236,87 @@ async function execute(agent: Agent, payment: Payment): Promise<Payment> {
       await assertSessionKeyAllows({account, signer: signer.address, to, valueWei});
     }
 
-    const {userOp, userOpHash} = await prepareAgentUserOperation({
+    prepared = await prepareAgentUserOperation({
       sender: account,
       callData: encodeExecute(to, valueWei, data),
       signer,
     });
-
-    // userOpHash записывается ДО отправки: если процесс умрёт следующей строкой,
-    // сверка найдёт операцию по нему, не имея txHash.
-    await db.payment.update({
-      where: {id: payment.id},
-      data: {status: "SUBMITTED", userOpHash},
-    });
-
-    const {txHash} = await submitUserOperation(userOp);
-    const outcome = await readUserOperationOutcome(txHash);
-
-    const finished = await finalize(payment.id, {
-      txHash,
-      success: outcome.success,
-      revertReason: outcome.revertReason,
-    });
-
-    // Свежий лог сразу после оплаты — чтобы транзакция появилась в дашборде без задержки.
-    await syncTransactionLogs();
-
-    if (!outcome.success) {
-      throw fromRevertData(outcome.revertReason);
-    }
-    return finished;
   } catch (error) {
-    const agentError = toAgentError(error);
-    await db.payment.update({
-      where: {id: payment.id},
-      data: {status: "FAILED", failureReason: agentError.message},
-    });
-    throw agentError;
+    throw await failBeforeSubmit(payment, error);
   }
+
+  const {userOp, userOpHash} = prepared;
+
+  // userOpHash записывается ДО отправки: если процесс умрёт следующей строкой,
+  // сверка найдёт операцию по нему, не имея txHash.
+  await db.payment.update({
+    where: {id: payment.id},
+    data: {status: "SUBMITTED", userOpHash},
+  });
+
+  // Фаза 2 — после отправки. Отсюда и дальше ошибки не трогают статус платежа.
+  let txHash: Hex;
+  try {
+    ({txHash} = await submitUserOperation(userOp));
+  } catch (error) {
+    throw toAgentError(error);
+  }
+
+  await db.payment.update({where: {id: payment.id}, data: {txHash}});
+
+  let outcome: Awaited<ReturnType<typeof readUserOperationOutcome>>;
+  try {
+    outcome = await readUserOperationOutcome(txHash, userOpHash);
+  } catch {
+    outcome = null;
+  }
+
+  if (!outcome) {
+    // RPC-флап при чтении чека либо нашей операции нет в транзакции бандлера. Это
+    // «неизвестно», а не «не прошло»: отдаём платёж как SUBMITTED, итог агент узнает
+    // через GET /api/v1/agents/me/payments/<id> после сверки.
+    return (await db.payment.findUnique({where: {id: payment.id}})) ?? payment;
+  }
+
+  const finished = await finalize(payment.id, {
+    txHash,
+    success: outcome.success,
+    revertReason: outcome.revertReason,
+  });
+
+  // Свежий лог сразу после оплаты — чтобы транзакция появилась в дашборде без задержки.
+  // Best-effort и вне критичного пути: сбой индексатора не имеет права менять статус
+  // уже завершённого платежа.
+  try {
+    await syncTransactionLogs();
+  } catch (error) {
+    console.warn("syncTransactionLogs после платежа не удался:", error);
+  }
+
+  if (!outcome.success) {
+    throw fromRevertData(outcome.revertReason);
+  }
+  return finished;
+}
+
+/**
+ * Фиксирует отказ ДО отправки: сеть платёж не видела, поэтому запись не должна
+ * оставаться в CREATED — иначе агент не отличит «не начинали» от «не смогли».
+ * Захваченный счёт освобождается для новой попытки.
+ */
+async function failBeforeSubmit(payment: Payment, error: unknown): Promise<AgentError> {
+  const agentError = toAgentError(error);
+  await db.payment.update({
+    where: {id: payment.id},
+    data: {status: "FAILED", failureReason: agentError.message},
+  });
+  if (payment.invoiceId) {
+    await db.invoice.updateMany({
+      where: {id: payment.invoiceId, status: "PAYING"},
+      data: {status: "OPEN"},
+    });
+  }
+  return agentError;
 }
 
 /** Переводит платёж в конечное состояние и, если платёж по счёту, закрывает счёт. */
@@ -199,10 +333,12 @@ async function finalize(
     },
   });
 
-  if (result.success && payment.invoiceId) {
-    await db.invoice.update({
-      where: {id: payment.invoiceId},
-      data: {status: "PAID", paidAt: new Date()},
+  // Счёт трогаем, только если он всё ещё захвачен этим платежом (PAYING): успех
+  // закрывает его, подтверждённый сетью отказ возвращает в OPEN для новой попытки.
+  if (payment.invoiceId) {
+    await db.invoice.updateMany({
+      where: {id: payment.invoiceId, status: "PAYING"},
+      data: result.success ? {status: "PAID", paidAt: new Date()} : {status: "OPEN"},
     });
   }
 
@@ -223,11 +359,16 @@ export async function reconcilePayments(agent: Agent): Promise<number> {
 
   let updated = 0;
   for (const payment of pending) {
-    const found = payment.txHash
-      ? {txHash: payment.txHash as Hex, ...(await readUserOperationOutcome(payment.txHash as Hex))}
-      : payment.userOpHash
-        ? await findUserOperationByHash(payment.userOpHash as Hex)
-        : null;
+    let found: ({txHash: Hex} & UserOperationOutcome) | null = null;
+    if (payment.txHash && payment.userOpHash) {
+      const outcome = await readUserOperationOutcome(
+        payment.txHash as Hex,
+        payment.userOpHash as Hex,
+      );
+      found = outcome ? {txHash: payment.txHash as Hex, ...outcome} : null;
+    } else if (payment.userOpHash) {
+      found = await findUserOperationByHash(payment.userOpHash as Hex);
+    }
 
     if (!found) {
       continue;

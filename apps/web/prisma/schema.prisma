@@ -77,7 +77,8 @@ model Payment {
   valueWei String
   data     String @default("0x")
 
-  /// CREATED — запись есть, в сеть ничего не ушло.
+  /// CREATED — запись есть, в сеть ничего не ушло. Дольше нескольких минут в этом
+  /// статусе бывает только след упавшего процесса: гасится в FAILED (см. payments.ts).
   /// SUBMITTED — операция подписана и отправлена, известен userOpHash.
   /// CONFIRMED — найден UserOperationEvent с success = true.
   /// FAILED — отвергнута на валидации либо исполнение не удалось.
@@ -116,7 +117,8 @@ model Invoice {
   valueWei String
   memo     String?
 
-  /// OPEN | PAID | EXPIRED | CANCELLED
+  /// OPEN — ждёт оплаты. PAYING — захвачен конкретным платежом (оплата идёт).
+  /// PAID — оплачен. EXPIRED — истёк срок. CANCELLED — отменён выставившим.
   status    String   @default("OPEN")
   expiresAt DateTime
 
