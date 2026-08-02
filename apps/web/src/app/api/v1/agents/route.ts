@@ -2,11 +2,12 @@ import {createAgent} from "@/lib/agents";
 import {json, readJson, route} from "@/lib/api";
 import {API_KEY_COOKIE} from "@/lib/auth";
 import {
-  assertSignerUrlResolvesPublic,
+  assertUrlResolvesPublic,
   parseAddress,
   parseMode,
   parseRules,
   parseSignerUrl,
+  parseWebhookUrl,
   parseWhitelist,
 } from "@/lib/validate";
 
@@ -21,12 +22,17 @@ import {
  * подпись у `signerUrl`, либо ждёт, когда владелец выдаст ей session key. Если не
  * указан — ключ генерирует сервер (прототипный путь, см. `lib/agents.ts`).
  *
+ * Необязательное поле `webhookUrl` — эндпоинт агента для уведомлений о смене статуса
+ * платежей и счетов (см. `lib/webhooks.ts`). Секрет подписи возвращается один раз,
+ * как и API-ключ.
+ *
  * Тело:
  *   {
  *     "handle": "orion",
  *     "mode": "AUTONOMOUS_ENTITY" | "HUMAN_CUSTODIAN",
  *     "owner": "0x…",
  *     "signerUrl": "https://agent.example/sign",
+ *     "webhookUrl": "https://agent.example/webhooks",
  *     "rules": {"limitEth": "0.5", "periodSeconds": 86400, "whitelistEnabled": true},
  *     "whitelist": ["0x…"]
  *   }
@@ -37,6 +43,7 @@ export const POST = route(async (request) => {
     mode?: string;
     owner?: unknown;
     signerUrl?: unknown;
+    webhookUrl?: unknown;
     rules?: unknown;
     whitelist?: unknown;
   }>(request);
@@ -48,14 +55,19 @@ export const POST = route(async (request) => {
   // указывает внутрь инфраструктуры.
   const signerUrl = parseSignerUrl(body.signerUrl);
   if (signerUrl) {
-    await assertSignerUrlResolvesPublic(signerUrl);
+    await assertUrlResolvesPublic(signerUrl, "signerUrl");
+  }
+  const webhookUrl = parseWebhookUrl(body.webhookUrl);
+  if (webhookUrl) {
+    await assertUrlResolvesPublic(webhookUrl, "webhookUrl");
   }
 
-  const {agent, apiKey} = await createAgent({
+  const {agent, apiKey, webhookSecret} = await createAgent({
     handle: String(body.handle ?? ""),
     mode,
     owner: body.owner === undefined ? undefined : parseAddress(body.owner, "owner"),
     signerUrl,
+    webhookUrl,
     rules: isCustodial && body.rules ? parseRules(body.rules) : undefined,
     whitelist: isCustodial ? parseWhitelist(body.whitelist) : [],
   });
@@ -69,7 +81,12 @@ export const POST = route(async (request) => {
       custodian: agent.custodianAddress,
       signerMode: agent.signerMode,
       apiKey,
-      note: "Сохраните apiKey: он показывается только сейчас.",
+      // Секрет подписи вебхуков — тоже один раз: в базе он лежит зашифрованным,
+      // и повторно его не показать.
+      ...(webhookSecret ? {webhookSecret} : {}),
+      note: webhookSecret
+        ? "Сохраните apiKey и webhookSecret: они показываются только сейчас."
+        : "Сохраните apiKey: он показывается только сейчас.",
     },
     {status: 201},
   );

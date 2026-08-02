@@ -43,6 +43,11 @@ model Agent {
   /// REMOTE: эндпоинт агента, который возвращает подпись по хешу операции.
   signerUrl String?
 
+  /// Эндпоинт агента для уведомлений о смене статуса платежа/счёта.
+  /// Секрет подписи показывается один раз при регистрации, в базе — зашифрован.
+  webhookUrl              String?
+  webhookSecretCiphertext String?
+
   /// Кастодиан-человек (null для Autonomous Entity) и его ключ — по той же схеме.
   custodianAddress       String?
   custodianKeyCiphertext String?
@@ -55,8 +60,9 @@ model Agent {
   transactions    TransactionLog[]
   sessionKeys     SessionKey[]
   payments        Payment[]
-  issuedInvoices  Invoice[]       @relation("IssuedInvoices")
+  issuedInvoices  Invoice[]         @relation("IssuedInvoices")
   faucetGrants    FaucetGrant[]
+  webhooks        WebhookDelivery[]
 }
 
 /// Платёж как объект с идентификатором и состоянием, а не как факт «запрос вернул 201».
@@ -221,4 +227,34 @@ model FaucetGrant {
   createdAt DateTime @default(now())
 
   @@index([agentId, createdAt])
+}
+
+/// Одна попытка уведомить агента о событии (смена статуса платежа, оплата счёта).
+///
+/// Доставка at-least-once: событие сначала пишется в базу, потом отправляется.
+/// Если эндпоинт агента не ответил 2xx, попытка повторяется с backoff'ом, пока не
+/// исчерпает лимит. Идемпотентность — на стороне агента: у каждой доставки свой id,
+/// по нему повторы отсекаются.
+model WebhookDelivery {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// payment.confirmed | payment.failed | payment.reorged | invoice.paid
+  event   String
+  /// JSON тела, как оно ушло/уйдёт в POST.
+  payload String
+
+  /// PENDING — ждёт отправки или повтора. DELIVERED — принят (2xx).
+  /// FAILED — исчерпаны все попытки.
+  status String @default("PENDING")
+
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  responseStatus Int?
+  deliveredAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, nextAttemptAt])
 }

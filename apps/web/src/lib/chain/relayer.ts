@@ -1,6 +1,7 @@
 import {decodeEventLog, numberToHex, parseAbiItem, sliceHex, type Address, type Hex} from "viem";
 
 import {serverEnv} from "@/lib/env";
+import {log} from "@/lib/log";
 
 import {entryPointAbi} from "./abis";
 import {fromRevertData} from "./errors";
@@ -112,8 +113,42 @@ function unpack(userOp: PackedUserOperation) {
   };
 }
 
+/**
+ * Запасной путь через тот же интерфейс.
+ *
+ * Один бандлер — одна точка отказа, причём снаружи её не видно: `eth_sendUserOperation`
+ * мог принять операцию и потерять, а мог и не принять вовсе. Поэтому при ошибке
+ * основного бандлера та же подписанная операция уходит в запасной. Повторная отправка
+ * безопасна: у операции тот же `userOpHash`, и второй бандлер либо вернёт его же,
+ * либо отклонит дубликат — двойного исполнения не даёт сам EntryPoint (нонс).
+ */
+class FallbackBundler implements Bundler {
+  readonly kind = "rpc";
+
+  constructor(
+    private readonly primary: Bundler,
+    private readonly fallback: Bundler,
+  ) {}
+
+  async send(userOp: PackedUserOperation): Promise<{txHash: Hex}> {
+    try {
+      return await this.primary.send(userOp);
+    } catch (error) {
+      log.warn("bundler.primary_failed", {
+        sender: userOp.sender,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.fallback.send(userOp);
+    }
+  }
+}
+
 export function bundler(): Bundler {
   const url = serverEnv.bundlerUrl();
+  const fallbackUrl = serverEnv.bundlerFallbackUrl();
+  if (url && fallbackUrl) {
+    return new FallbackBundler(new RpcBundler(url), new RpcBundler(fallbackUrl));
+  }
   return url ? new RpcBundler(url) : new LocalHandleOpsBundler();
 }
 

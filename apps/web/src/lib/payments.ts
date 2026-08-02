@@ -21,6 +21,7 @@ import {describeError, log} from "./log";
 import {publicClient} from "./chain/clients";
 import {db} from "./db";
 import {assertSessionKeyAllows} from "./session-keys";
+import {enqueueWebhook, processWebhookQueue} from "./webhooks";
 
 /**
  * Платежи агента.
@@ -343,7 +344,26 @@ async function failBeforeSubmit(payment: Payment, error: unknown): Promise<Agent
       data: {status: "OPEN"},
     });
   }
+  await enqueueWebhook(
+    payment.agentId,
+    "payment.failed",
+    paymentEventData({...payment, status: "FAILED", failureReason: agentError.message}),
+  );
   return agentError;
+}
+
+/** Данные события для вебхука — то же, что агент видит в API платежа. */
+function paymentEventData(payment: Payment): Record<string, unknown> {
+  return {
+    paymentId: payment.id,
+    status: payment.status.toLowerCase(),
+    to: payment.to,
+    valueWei: payment.valueWei,
+    userOpHash: payment.userOpHash,
+    txHash: payment.txHash,
+    failureReason: payment.failureReason,
+    invoiceId: payment.invoiceId,
+  };
 }
 
 /**
@@ -377,10 +397,27 @@ async function finalize(
   // Счёт трогаем, только если он всё ещё захвачен этим платежом (PAYING): успех
   // закрывает его, подтверждённый сетью отказ возвращает в OPEN для новой попытки.
   // Незрелый успех счёт не отпускает — он всё ещё оплачивается.
+  let invoicePaid = false;
   if (payment.invoiceId && (confirmed || !result.success)) {
-    await db.invoice.updateMany({
+    const closed = await db.invoice.updateMany({
       where: {id: payment.invoiceId, status: "PAYING"},
       data: result.success ? {status: "PAID", paidAt: new Date()} : {status: "OPEN"},
+    });
+    invoicePaid = result.success && closed.count > 0;
+  }
+
+  // Уведомления — после фиксации состояния: событие описывает уже записанный факт.
+  // Повторы возможны (at-least-once), агент отсекает их по id доставки.
+  if (payment.status === "CONFIRMED") {
+    await enqueueWebhook(payment.agentId, "payment.confirmed", paymentEventData(payment));
+  } else if (payment.status === "FAILED") {
+    await enqueueWebhook(payment.agentId, "payment.failed", paymentEventData(payment));
+  }
+  if (invoicePaid && payment.invoiceId) {
+    await enqueueWebhook(payment.agentId, "invoice.paid", {
+      invoiceId: payment.invoiceId,
+      paymentId: payment.id,
+      txHash: payment.txHash,
     });
   }
 
@@ -415,7 +452,7 @@ async function markReorged(payment: Payment): Promise<Payment> {
     blockNumber: payment.blockNumber ?? undefined,
   });
 
-  return db.payment.update({
+  const updated = await db.payment.update({
     where: {id: payment.id},
     data: {
       status: "SUBMITTED",
@@ -425,6 +462,10 @@ async function markReorged(payment: Payment): Promise<Payment> {
         "Блок с операцией вытеснен из цепи (реорг). Платёж снова ждёт подтверждения.",
     },
   });
+
+  // Особенно важное событие: агент мог уже считать деньги полученными.
+  await enqueueWebhook(payment.agentId, "payment.reorged", paymentEventData(updated));
+  return updated;
 }
 
 /**
@@ -450,7 +491,13 @@ export async function reconcilePayments(agent: Agent): Promise<number> {
     updated++;
   }
 
-  return updated + (await recheckRecentlyConfirmed(agent));
+  const total = updated + (await recheckRecentlyConfirmed(agent));
+
+  // Заодно гоняем очередь вебхуков: активность агента — естественный момент
+  // для повторных попыток доставки.
+  await processWebhookQueue();
+
+  return total;
 }
 
 /**

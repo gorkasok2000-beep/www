@@ -22,6 +22,9 @@ export const serverEnv = {
   /** URL внешнего бандлера. Если пусто — операции идут напрямую в EntryPoint. */
   bundlerUrl: () => process.env.BUNDLER_URL || undefined,
 
+  /** Запасной бандлер: используется, когда основной не отвечает или теряет операцию. */
+  bundlerFallbackUrl: () => process.env.BUNDLER_FALLBACK_URL || undefined,
+
   /** EOA, который отправляет `handleOps` в локальной сети (роль бандлера). */
   relayerPrivateKey: () => required("RELAYER_PRIVATE_KEY"),
 

@@ -22,6 +22,7 @@ import {decryptSecret, encryptSecret, generateApiKey, hashApiKey} from "./crypto
 import {db} from "./db";
 import {serverEnv} from "./env";
 import {activeSessionKeyRecord} from "./session-keys";
+import {generateWebhookSecret} from "./webhooks";
 
 /** Два сценария из ТЗ. Значения совпадают с порядком enum `AgentMode` в контракте. */
 export const AGENT_MODES = ["HUMAN_CUSTODIAN", "AUTONOMOUS_ENTITY"] as const;
@@ -51,7 +52,8 @@ export async function createAgent(params: {
   whitelist?: Address[];
   owner?: Address;
   signerUrl?: string;
-}): Promise<{agent: Agent; apiKey: string}> {
+  webhookUrl?: string;
+}): Promise<{agent: Agent; apiKey: string; webhookSecret?: string}> {
   const handle = params.handle.trim();
   if (!/^[a-z0-9][a-z0-9-]{1,30}$/i.test(handle)) {
     throw new AgentError(
@@ -126,6 +128,10 @@ export async function createAgent(params: {
 
   const apiKey = generateApiKey();
 
+  // Секрет подписи вебхуков нужен, только если агент назвал эндпоинт для уведомлений.
+  // Показывается один раз, как и API-ключ; в базе лежит зашифрованным.
+  const webhookSecret = params.webhookUrl ? generateWebhookSecret() : undefined;
+
   // Кошелёк уже создан в сети, а запись ещё нет: если создание записи упадёт (например,
   // на уникальности `accountAddress`), наружу должен уйти внятный конфликт, а не 500 с
   // деталями базы. Ончейн-состояние при этом остаётся источником истины.
@@ -140,6 +146,8 @@ export async function createAgent(params: {
         signerMode,
         ownerKeyCiphertext: ownerKey ? encryptSecret(ownerKey) : null,
         signerUrl: params.signerUrl ?? null,
+        webhookUrl: params.webhookUrl ?? null,
+        webhookSecretCiphertext: webhookSecret ? encryptSecret(webhookSecret) : null,
         custodianAddress: custodianKey ? custodian : null,
         custodianKeyCiphertext: custodianKey ? encryptSecret(custodianKey) : null,
         apiKeyHash: hashApiKey(apiKey),
@@ -153,7 +161,7 @@ export async function createAgent(params: {
       );
     });
 
-  return {agent, apiKey};
+  return {agent, apiKey, webhookSecret};
 }
 
 /**
