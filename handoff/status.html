@@ -145,7 +145,7 @@
     <div class="kicker">Совместная разработка · gorkasok2000-beep/www</div>
     <h1>Synth Wallet — статус работ</h1>
     <div class="sub">ERC-4337 smart wallet для ИИ-агентов: агент тратит одним HTTP-запросом, доверие перенесено с платформы на контракт</div>
-    <div class="meta">Обновлено: 2 августа 2026 · ветка claude/synth-wallet-prototype-ox1cd0 · PR-1 – PR-4 прогнаны на живом стенде, Gate 0 закрыт, идёт Этап 1</div>
+    <div class="meta">Обновлено: 2 августа 2026 · ветка claude/synth-wallet-prototype-ox1cd0 · Этап 1: webhooks и bundler fallback сделаны (a0976b8), тестнет-MVP собран</div>
   </header>
 
   <section>
@@ -219,7 +219,8 @@
           <div class="dot next">→</div>
           <div class="step-body">
             <div class="step-title">Этап 1 — воспроизводимый тестнет-MVP</div>
-            <div class="step-desc">Сделано: глубина подтверждений и обработка реоргов (подтверждённый платёж больше не остаётся подтверждённым после вытеснения блока, осиротевшие события уходят с витрины), миграции Prisma вместо db push, структурные логи с requestId, SERVER_KEY за флагом. Осталось: webhooks, bundler adapter с fallback.</div>
+            <div class="step-desc">Сделано: глубина подтверждений и обработка реоргов (подтверждённый платёж больше не остаётся подтверждённым после вытеснения блока, осиротевшие события уходят с витрины), миграции Prisma вместо db push, структурные логи с requestId, SERVER_KEY за флагом. Добавлено: вебхуки статусов (at-least-once, HMAC-подпись, id доставки для идемпотентности, SSRF-проверки как у signerUrl) и запасной бандлер через тот же интерфейс (BUNDLER_FALLBACK_URL). Scope Этапа 1 закрыт — дальше проверка на публичном тестнете с 5–10 командами.</div>
+            <span class="commit">a0976b8</span>
           </div>
         </div>
         <div class="step">
@@ -384,7 +385,7 @@
     <h2><span class="num">04</span>Gates из roadmap</h2>
     <div class="card">
       <div class="gate"><span class="g">Gate 0</span><span>Все blocker/high закрыты и <b>проверены прогоном</b>: 71 тест контрактов, adversarial-тесты падают на коде до фикса, CI на чистом клоне, сквозной тест API. <b>Закрыт.</b></span></div>
-      <div class="gate"><span class="g">Gate 1</span><span>Testnet-safe MVP: глубина подтверждений и реорги ✓, миграции ✓, наблюдаемость ✓, SERVER_KEY за флагом ✓; осталось — webhooks и bundler adapter. <b>Сейчас здесь.</b></span></div>
+      <div class="gate"><span class="g">Gate 1</span><span>Testnet-safe MVP: глубина подтверждений и реорги ✓, миграции ✓, наблюдаемость ✓, SERVER_KEY за флагом ✓, webhooks ✓, bundler fallback ✓. Код собран; осталось — прогон с 5–10 внешними командами и замер p95. <b>Сейчас здесь.</b></span></div>
       <div class="gate"><span class="g">Gate 2</span><span>Аудит + legal + KMS: внешний аудит контрактов, ключи оператора в KMS/HSM, юридическая рамка custodial-элементов.</span></div>
       <div class="gate"><span class="g">Gate 3</span><span>Capped pilot: реальные пользователи с жёсткими лимитами на аккаунт и на платёж, мониторинг и runbook инцидентов.</span></div>
       <div class="gate"><span class="g">Gate 4</span><span>Production: ERC-20 только после token budgets (approve/Permit2), multichain только после координации кросс-чейн апгрейдов.</span></div>
