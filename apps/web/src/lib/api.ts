@@ -1,9 +1,14 @@
 import {NextResponse} from "next/server";
 
 import {AgentError} from "./agents";
+import {describeError, log} from "./log";
 
 /**
  * Общая обвязка API: JSON с bigint, единый формат ошибки и обработка `AgentError`.
+ *
+ * Здесь же заводится идентификатор запроса. Он уходит клиенту заголовком `x-request-id`
+ * и попадает во все логи этого запроса: без него разобрать инцидент по логам нельзя —
+ * непонятно, какая строка к какому обращению относится.
  */
 
 /** bigint не сериализуется в JSON — отдаём его строкой, как принято для wei. */
@@ -18,15 +23,16 @@ export function json(data: unknown, init?: ResponseInit): NextResponse {
   });
 }
 
-export function errorResponse(error: unknown): NextResponse {
+export function errorResponse(error: unknown, requestId?: string): NextResponse {
   if (error instanceof AgentError) {
-    return json({error: error.message}, {status: error.status});
+    return json({error: error.message, requestId}, {status: error.status});
   }
 
   // Детали 500 остаются в серверном логе: сырой message может содержать внутренние
   // пути, параметры подключения или фрагменты секретов — наружу это не отдаём.
-  console.error("[api]", error);
-  return json({error: "Внутренняя ошибка сервера."}, {status: 500});
+  // Идентификатор запроса отдаём: по нему нужную строку лога находят за секунду.
+  log.error("request.failed", {requestId, error: describeError(error)});
+  return json({error: "Внутренняя ошибка сервера.", requestId}, {status: 500});
 }
 
 /** Оборачивает обработчик роута, чтобы не дублировать try/catch в каждом файле. */
@@ -34,11 +40,29 @@ export function route<Args extends unknown[]>(
   handler: (request: Request, ...args: Args) => Promise<NextResponse>,
 ) {
   return async (request: Request, ...args: Args): Promise<NextResponse> => {
+    // Клиент может прислать свой идентификатор — тогда его цепочка вызовов и наши логи
+    // сшиваются без дополнительной работы.
+    const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+    const startedAt = Date.now();
+    const path = new URL(request.url).pathname;
+
+    let response: NextResponse;
     try {
-      return await handler(request, ...args);
+      response = await handler(request, ...args);
     } catch (error) {
-      return errorResponse(error);
+      response = errorResponse(error, requestId);
     }
+
+    response.headers.set("x-request-id", requestId);
+    log.info("request", {
+      requestId,
+      method: request.method,
+      path,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return response;
   };
 }
 

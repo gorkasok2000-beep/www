@@ -59,7 +59,7 @@ if (!existsSync(envFilePath)) {
     "\n\x1b[33mНет apps/web/.env.local — скопируйте .env.example и заполните.\x1b[0m",
   );
 } else {
-  step("Схема базы данных", "pnpm", ["--filter", "web", "exec", "prisma", "db", "push"]);
+  step("Схема базы данных", "pnpm", ["--filter", "web", "exec", "prisma", "migrate", "deploy"]);
   step("Клиент Prisma", "pnpm", ["--filter", "web", "exec", "prisma", "generate"]);
   step("Проверка окружения", "node", ["scripts/check-env.mjs"]);
 }

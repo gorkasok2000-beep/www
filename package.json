@@ -16,7 +16,9 @@
     "demo": "pnpm --filter web exec tsx ../../examples/agent-demo.ts",
     "e2e": "node scripts/e2e.mjs",
     "check-env": "node scripts/check-env.mjs",
-    "bootstrap": "node scripts/bootstrap.mjs"
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "reindex": "node scripts/reindex.mjs",
+    "db:migrate": "pnpm --filter web db:migrate"
   },
   "engines": {
     "node": ">=20"

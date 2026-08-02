@@ -181,6 +181,8 @@ const USER_OPERATION_EVENTS = [
 export type UserOperationOutcome = {
   success: boolean;
   revertReason?: Hex;
+  /** Блок, в котором операция исполнилась. Нужен, чтобы понять её глубину в цепи. */
+  blockNumber: bigint;
 };
 
 /**
@@ -237,7 +239,7 @@ export async function readUserOperationOutcome(
     }
   }
 
-  return found ? {success, revertReason} : null;
+  return found ? {success, revertReason, blockNumber: receipt.blockNumber} : null;
 }
 
 /**

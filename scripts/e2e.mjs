@@ -36,6 +36,25 @@ const MERCHANT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 
 const pub = createPublicClient({chain: foundry, transport: http(RPC)});
 
+/**
+ * Глубина подтверждений стенда. При нуле платёж закрывается сразу, при ненулевой —
+ * сначала ждёт нужного числа блоков поверх своего, поэтому ожидания разные.
+ */
+const DEPTH = Number(process.env.CONFIRMATION_BLOCKS ?? "0");
+const SETTLED = DEPTH === 0 ? "confirmed" : "submitted";
+
+/** Прямой JSON-RPC к ноде: снимки и добыча блоков через viem не выражаются. */
+async function rpc(method, params = []) {
+  const response = await fetch(RPC, {
+    method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({jsonrpc: "2.0", id: 1, method, params}),
+  });
+  const body = await response.json();
+  if (body.error) throw new Error(`${method}: ${body.error.message}`);
+  return body.result;
+}
+
 let failures = 0;
 const ok = (passed, label, extra = "") => {
   console.log(`${passed ? "  ok  " : "  FAIL"} ${label}${extra ? " — " + extra : ""}`);
@@ -125,7 +144,7 @@ const paid = await call("/agents/me/transactions", {
   key: `pay-${suffix}`,
   body: {to: MERCHANT, valueEth: "0.2"},
 });
-ok(paid.status === 201 && paid.body.status === "confirmed", "платёж прошёл", paid.body.status ?? paid.body.error);
+ok(paid.status === 201 && paid.body.status === SETTLED, "платёж прошёл", paid.body.status ?? paid.body.error);
 ok((await balanceOf(MERCHANT)) - merchantBefore === parseEther("0.2"), "получатель получил 0.2 ETH");
 
 const overBudget = await call("/agents/me/transactions", {
@@ -168,7 +187,7 @@ ok(noKey.status === 400, "без Idempotency-Key — 400", `${noKey.status}`);
 section("4. Сверка: платёж без txHash восстанавливается по userOpHash");
 // ---------------------------------------------------------------------------
 const detail = await call(`/agents/me/payments/${paid.body.id}`, {apiKey: agent.apiKey});
-ok(detail.body.status === "confirmed", "статус платежа читается", detail.body.status);
+ok(detail.body.status === SETTLED || detail.body.status === "confirmed", "статус платежа читается", detail.body.status);
 ok(Boolean(detail.body.userOpHash), "userOpHash записан до отправки", detail.body.userOpHash?.slice(0, 12));
 
 // ---------------------------------------------------------------------------
@@ -215,8 +234,12 @@ ok(
 );
 
 const invoiceState = await call(`/invoices/${invoice.body.id}`);
+// При ненулевой глубине счёт остаётся захваченным (`paying`), пока платёж дозревает:
+// отпустить его раньше значило бы разрешить вторую оплату того же счёта.
+const expectedInvoice =
+  invoicePaid === 1 ? (DEPTH === 0 ? ["paid"] : ["paid", "paying"]) : ["open"];
 ok(
-  invoicePaid === 1 ? invoiceState.body.status === "paid" : invoiceState.body.status === "open",
+  expectedInvoice.includes(invoiceState.body.status),
   "статус счёта соответствует исходу",
   invoiceState.body.status,
 );
@@ -359,6 +382,75 @@ const sameHandle = await call("/agents", {
   body: {handle: `twin-a-${suffix}`, mode: "AUTONOMOUS_ENTITY", owner: shared.address},
 });
 ok(sameHandle.status === 409, "то же имя — конфликт", `${sameHandle.status}`);
+
+// ---------------------------------------------------------------------------
+section("10. Реорг: подтверждённый платёж не остаётся подтверждённым навсегда");
+// ---------------------------------------------------------------------------
+// Стенд по умолчанию работает с CONFIRMATION_BLOCKS=0 (на anvil реорга не бывает),
+// поэтому проверка имеет смысл только когда сервер поднят с ненулевой глубиной.
+if (DEPTH === 0) {
+  console.log("  ··   пропущено: запустите сервер с CONFIRMATION_BLOCKS=2");
+} else {
+  const victim = await newAgent(`reorg-${suffix}`);
+  await call("/agents/me/deposit", {method: "POST", apiKey: victim.apiKey, body: {valueEth: "3"}});
+  await grantSessionKey(victim, "1");
+
+  // Снимок до платежа: откат к нему выкинет блок с транзакцией бандлера — ровно то,
+  // что делает реорг.
+  const snapshot = await rpc("evm_snapshot");
+
+  const before = await call("/agents/me/transactions", {
+    method: "POST",
+    apiKey: victim.apiKey,
+    key: `reorg-${suffix}`,
+    body: {to: MERCHANT, valueEth: "0.1"},
+  });
+  ok(before.body.status === "submitted", "платёж ждёт подтверждений, а не подтверждён сразу", before.body.status);
+
+  for (let i = 0; i < DEPTH + 1; i++) await rpc("evm_mine");
+  const matured = await call(`/agents/me/payments/${before.body.id}`, {apiKey: victim.apiKey});
+  ok(matured.body.status === "confirmed", "после нужной глубины платёж подтверждён", matured.body.status);
+
+  const history = await call("/agents/me/transactions", {apiKey: victim.apiKey});
+  ok(history.body.transactions.length === 1, "трата в публичном логе", String(history.body.transactions.length));
+
+  await rpc("evm_revert", [snapshot]);
+  for (let i = 0; i < DEPTH + 1; i++) await rpc("evm_mine");
+
+  const afterReorg = await call(`/agents/me/payments/${before.body.id}`, {apiKey: victim.apiKey});
+  ok(
+    afterReorg.body.status === "submitted",
+    "после реорга платёж вернулся в submitted, а не остался confirmed",
+    afterReorg.body.status,
+  );
+
+  const historyAfter = await call("/agents/me/transactions", {apiKey: victim.apiKey});
+  ok(
+    historyAfter.body.transactions.length === 0,
+    "осиротевшая трата убрана из публичного лога",
+    String(historyAfter.body.transactions.length),
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("11. Режим SERVER_KEY закрыт флагом");
+// ---------------------------------------------------------------------------
+// Проверка имеет смысл только когда сервер поднят с ALLOW_SERVER_KEY_MODE=false:
+// это состояние публичной сети, где платформа не имеет права держать главный ключ.
+if (process.env.ALLOW_SERVER_KEY_MODE === "false") {
+  const withoutOwner = await call("/agents", {
+    method: "POST",
+    body: {handle: `srv-${suffix}`, mode: "AUTONOMOUS_ENTITY"},
+  });
+  ok(withoutOwner.status === 400, "регистрация без owner отклонена", `${withoutOwner.status}`);
+  ok(
+    Boolean(withoutOwner.body.requestId),
+    "в ответе есть requestId для разбора по логам",
+    withoutOwner.body.requestId,
+  );
+} else {
+  console.log("  ··   пропущено: запустите сервер с ALLOW_SERVER_KEY_MODE=false");
+}
 
 console.log(failures ? `\n${failures} проверок провалено` : "\nвсе проверки пройдены");
 process.exit(failures ? 1 : 0);

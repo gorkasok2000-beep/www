@@ -53,8 +53,14 @@ jobs:
           git diff --exit-code apps/web/src/lib/chain/abis.ts \
             || (echo "::error::abis.ts устарел — выполните node scripts/export-abi.mjs" && exit 1)
 
-      - name: Клиент Prisma
-        run: pnpm --filter web exec prisma generate
+      - name: Схема и клиент Prisma
+        # migrate deploy, а не db push: схема версионирована, и CI проверяет, что
+        # миграции применяются на пустую базу без ручных шагов.
+        env:
+          DATABASE_URL: file:./ci.db
+        run: |
+          pnpm --filter web exec prisma migrate deploy
+          pnpm --filter web exec prisma generate
 
       - name: Типы
         run: pnpm --filter web exec tsc --noEmit

@@ -93,6 +93,12 @@ model Payment {
   /// «повисший» платёж можно найти в логах EntryPoint, даже не зная txHash.
   userOpHash    String?
   txHash        String?
+
+  /// Блок, в котором операция исполнилась. Пока он не ушёл на глубину подтверждений,
+  /// платёж считается неподтверждённым: реорг может вытеснить этот блок вместе с
+  /// транзакцией бандлера.
+  blockNumber String?
+
   failureReason String?
 
   invoiceId String?

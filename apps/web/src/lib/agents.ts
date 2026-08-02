@@ -20,6 +20,7 @@ import {
 import {localSigner, remoteSigner, type Signer, type SignerMode} from "./chain/signer";
 import {decryptSecret, encryptSecret, generateApiKey, hashApiKey} from "./crypto";
 import {db} from "./db";
+import {serverEnv} from "./env";
 import {activeSessionKeyRecord} from "./session-keys";
 
 /** Два сценария из ТЗ. Значения совпадают с порядком enum `AgentMode` в контракте. */
@@ -74,6 +75,17 @@ export async function createAgent(params: {
   if (params.signerUrl && !params.owner) {
     throw new AgentError(
       "Вместе с signerUrl нужен owner: платформа обязана знать, чью подпись проверять.",
+      400,
+    );
+  }
+
+  // Режим SERVER_KEY — прототипный: платформа генерирует и хранит главный ключ агента,
+  // то есть может потратить всё. На публичной сети он должен быть закрыт, иначе
+  // компрометация сервера стоит средств всех агентов, зарегистрированных таким путём.
+  if (!params.owner && !serverEnv.allowServerKeyMode()) {
+    throw new AgentError(
+      "Укажите owner — адрес, которым агент подписывает свои операции. Хранение главного " +
+        "ключа на сервере в этой сети отключено (ALLOW_SERVER_KEY_MODE=false).",
       400,
     );
   }

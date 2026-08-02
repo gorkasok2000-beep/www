@@ -3,6 +3,7 @@ import {formatEther, type Address, type Hex} from "viem";
 import type {Agent, Payment} from "@/generated/prisma";
 
 import {AgentError} from "./agent-error";
+import {serverEnv} from "./env";
 import {signerFor} from "./agents";
 import {fromRevertData, toAgentError} from "./chain/errors";
 import {syncTransactionLogs} from "./chain/indexer";
@@ -16,6 +17,8 @@ import {
 } from "./chain/relayer";
 import {encodeExecute} from "./chain/userOperation";
 import {hashRequest} from "./crypto";
+import {describeError, log} from "./log";
+import {publicClient} from "./chain/clients";
 import {db} from "./db";
 import {assertSessionKeyAllows} from "./session-keys";
 
@@ -44,6 +47,16 @@ export type PaymentInput = {
 
 /** Промежуточные состояния: платёж начат, чем кончился — ещё неизвестно. */
 const IN_FLIGHT = ["CREATED", "SUBMITTED"];
+
+/**
+ * Условие «платёж занимает нонс кошелька».
+ *
+ * Нонс держит только операция, которая ещё не попала в блок. Как только известен
+ * `blockNumber`, нонс израсходован, и следующий платёж можно собирать — даже если этот
+ * ещё дозревает до нужной глубины подтверждений. Без этого уточнения агент с ненулевым
+ * `CONFIRMATION_BLOCKS` не мог бы заплатить второй раз, пока цепь не подрастёт.
+ */
+const HOLDS_NONCE = {status: {in: IN_FLIGHT}, blockNumber: null} as const;
 
 /**
  * Сколько платёж может оставаться в CREATED. Дольше — значит процесс упал между
@@ -105,7 +118,7 @@ export async function payWithIdempotency(
       }
 
       const inFlight = await tx.payment.findFirst({
-        where: {agentId: agent.id, status: {in: IN_FLIGHT}},
+        where: {agentId: agent.id, ...HOLDS_NONCE},
       });
       if (inFlight) {
         throw new AgentError(
@@ -253,6 +266,13 @@ async function execute(agent: Agent, payment: Payment): Promise<Payment> {
     where: {id: payment.id},
     data: {status: "SUBMITTED", userOpHash},
   });
+  log.info("payment.submitted", {
+    agentId: agent.id,
+    paymentId: payment.id,
+    userOpHash,
+    to: payment.to,
+    valueWei: payment.valueWei,
+  });
 
   // Фаза 2 — после отправки. Отсюда и дальше ошибки не трогают статус платежа.
   let txHash: Hex;
@@ -278,10 +298,13 @@ async function execute(agent: Agent, payment: Payment): Promise<Payment> {
     return (await db.payment.findUnique({where: {id: payment.id}})) ?? payment;
   }
 
-  const finished = await finalize(payment.id, {
+  const finished = await finalize(payment.id, {txHash, ...outcome});
+  log.info(outcome.success ? `payment.${finished.status.toLowerCase()}` : "payment.rejected", {
+    agentId: agent.id,
+    paymentId: payment.id,
+    userOpHash,
     txHash,
-    success: outcome.success,
-    revertReason: outcome.revertReason,
+    blockNumber: outcome.blockNumber.toString(),
   });
 
   // Свежий лог сразу после оплаты — чтобы транзакция появилась в дашборде без задержки.
@@ -290,7 +313,11 @@ async function execute(agent: Agent, payment: Payment): Promise<Payment> {
   try {
     await syncTransactionLogs();
   } catch (error) {
-    console.warn("syncTransactionLogs после платежа не удался:", error);
+    log.warn("indexer.sync_failed", {
+      paymentId: payment.id,
+      txHash,
+      error: describeError(error),
+    });
   }
 
   if (!outcome.success) {
@@ -319,23 +346,38 @@ async function failBeforeSubmit(payment: Payment, error: unknown): Promise<Agent
   return agentError;
 }
 
-/** Переводит платёж в конечное состояние и, если платёж по счёту, закрывает счёт. */
+/**
+ * Записывает исход операции и, если он окончательный, закрывает платёж.
+ *
+ * «Окончательный» — не то же самое, что «есть событие в чеке». Блок с транзакцией
+ * бандлера может быть вытеснен реоргом, и платёж, помеченный `CONFIRMED` на нулевой
+ * глубине, останется подтверждённым навсегда: сверка смотрит только незавершённые.
+ * Поэтому успех признаётся, лишь когда поверх блока легло `CONFIRMATION_BLOCKS` блоков;
+ * до тех пор платёж ждёт в `SUBMITTED` с уже записанными `txHash` и `blockNumber`.
+ *
+ * Отказ фиксируется сразу и без выдержки: ложный `FAILED` заставит агента заплатить
+ * ещё раз новым ключом, но не создаст иллюзии, что деньги ушли.
+ */
 async function finalize(
   paymentId: string,
-  result: {txHash: Hex; success: boolean; revertReason?: Hex},
+  result: {txHash: Hex; success: boolean; revertReason?: Hex; blockNumber: bigint},
 ): Promise<Payment> {
+  const confirmed = result.success ? await isDeepEnough(result.blockNumber) : true;
+
   const payment = await db.payment.update({
     where: {id: paymentId},
     data: {
       txHash: result.txHash,
-      status: result.success ? "CONFIRMED" : "FAILED",
+      blockNumber: result.blockNumber.toString(),
+      status: result.success ? (confirmed ? "CONFIRMED" : "SUBMITTED") : "FAILED",
       failureReason: result.success ? null : fromRevertData(result.revertReason).message,
     },
   });
 
   // Счёт трогаем, только если он всё ещё захвачен этим платежом (PAYING): успех
   // закрывает его, подтверждённый сетью отказ возвращает в OPEN для новой попытки.
-  if (payment.invoiceId) {
+  // Незрелый успех счёт не отпускает — он всё ещё оплачивается.
+  if (payment.invoiceId && (confirmed || !result.success)) {
     await db.invoice.updateMany({
       where: {id: payment.invoiceId, status: "PAYING"},
       data: result.success ? {status: "PAID", paidAt: new Date()} : {status: "OPEN"},
@@ -343,6 +385,46 @@ async function finalize(
   }
 
   return payment;
+}
+
+/** Ушёл ли блок на глубину, с которой реорг его уже не вытеснит. */
+async function isDeepEnough(blockNumber: bigint): Promise<boolean> {
+  const depth = serverEnv.confirmationBlocks();
+  if (depth === 0n) {
+    return true;
+  }
+
+  // cacheTime: 0 — иначе viem вернёт голову, закэшированную до отправки нашей операции.
+  const head = await publicClient().getBlockNumber({cacheTime: 0});
+  return head >= blockNumber + depth;
+}
+
+/**
+ * Возвращает платёж, чью операцию сеть больше не помнит.
+ *
+ * Такое бывает после реорга: блок с транзакцией бандлера вытеснен, событие исчезло.
+ * Правильный ответ — не `FAILED` (операция могла быть переупакована в новый блок), а
+ * снова `SUBMITTED`: пусть сверка ищет её дальше. Счёт при этом остаётся захваченным.
+ */
+async function markReorged(payment: Payment): Promise<Payment> {
+  log.warn("payment.reorged", {
+    agentId: payment.agentId,
+    paymentId: payment.id,
+    userOpHash: payment.userOpHash ?? undefined,
+    txHash: payment.txHash ?? undefined,
+    blockNumber: payment.blockNumber ?? undefined,
+  });
+
+  return db.payment.update({
+    where: {id: payment.id},
+    data: {
+      status: "SUBMITTED",
+      txHash: null,
+      blockNumber: null,
+      failureReason:
+        "Блок с операцией вытеснен из цепи (реорг). Платёж снова ждёт подтверждения.",
+    },
+  });
 }
 
 /**
@@ -359,17 +441,7 @@ export async function reconcilePayments(agent: Agent): Promise<number> {
 
   let updated = 0;
   for (const payment of pending) {
-    let found: ({txHash: Hex} & UserOperationOutcome) | null = null;
-    if (payment.txHash && payment.userOpHash) {
-      const outcome = await readUserOperationOutcome(
-        payment.txHash as Hex,
-        payment.userOpHash as Hex,
-      );
-      found = outcome ? {txHash: payment.txHash as Hex, ...outcome} : null;
-    } else if (payment.userOpHash) {
-      found = await findUserOperationByHash(payment.userOpHash as Hex);
-    }
-
+    const found = await locate(payment);
     if (!found) {
       continue;
     }
@@ -378,7 +450,75 @@ export async function reconcilePayments(agent: Agent): Promise<number> {
     updated++;
   }
 
+  return updated + (await recheckRecentlyConfirmed(agent));
+}
+
+/**
+ * Перепроверяет платежи, подтверждённые совсем недавно.
+ *
+ * Без этого шага `CONFIRMED` был бы вечным: сверка смотрит только незавершённые, а
+ * реорг вытесняет блок уже после того, как платёж закрыт. Пока блок не ушёл на глубину
+ * подтверждений, его нужно перечитывать — и, если операции в сети больше нет, честно
+ * вернуть платёж в `SUBMITTED`.
+ */
+async function recheckRecentlyConfirmed(agent: Agent): Promise<number> {
+  const depth = serverEnv.confirmationBlocks();
+  if (depth === 0n) {
+    // Локальная сеть: реорга не бывает, перечитывать нечего.
+    return 0;
+  }
+
+  const head = await publicClient().getBlockNumber({cacheTime: 0});
+  const shallowFrom = head > depth ? head - depth : 0n;
+
+  const recent = await db.payment.findMany({
+    where: {agentId: agent.id, status: "CONFIRMED", blockNumber: {not: null}},
+    orderBy: {createdAt: "desc"},
+    take: 50,
+  });
+
+  let updated = 0;
+  for (const payment of recent) {
+    // Блок глубже зоны реорга — перечитывать нечего. Блок «из будущего» (номер больше
+    // головы) означает, что цепь укоротилась: такой платёж проверяем обязательно.
+    const block = BigInt(payment.blockNumber!);
+    if (block < shallowFrom && block <= head) {
+      continue;
+    }
+
+    const found = await locate(payment);
+    if (found) {
+      continue; // операция на месте
+    }
+
+    await markReorged(payment);
+    updated++;
+  }
+
   return updated;
+}
+
+/** Ищет операцию платежа в сети: сначала по известному чеку, потом по логам EntryPoint. */
+async function locate(payment: Payment): Promise<({txHash: Hex} & UserOperationOutcome) | null> {
+  if (!payment.userOpHash) {
+    return null;
+  }
+
+  if (payment.txHash) {
+    try {
+      const outcome = await readUserOperationOutcome(
+        payment.txHash as Hex,
+        payment.userOpHash as Hex,
+      );
+      if (outcome) {
+        return {txHash: payment.txHash as Hex, ...outcome};
+      }
+    } catch {
+      // Чека нет — транзакция могла быть вытеснена реоргом. Ищем операцию по логам.
+    }
+  }
+
+  return findUserOperationByHash(payment.userOpHash as Hex);
 }
 
 export async function listPayments(agent: Agent, limit = 50): Promise<Payment[]> {
@@ -396,7 +536,9 @@ export async function getPayment(agent: Agent, id: string): Promise<Payment> {
     throw new AgentError(`Платёж ${id} не найден.`, 404);
   }
 
-  if (payment.status !== "SUBMITTED") {
+  // Сверяем не только незавершённые: подтверждённый платёж тоже может «расподтвердиться»
+  // после реорга, пока его блок не ушёл на глубину. Окончательные FAILED не трогаем.
+  if (payment.status === "FAILED") {
     return payment;
   }
 
