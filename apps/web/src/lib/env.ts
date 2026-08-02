@@ -28,7 +28,10 @@ export const serverEnv = {
    * списке задаёт приоритет, перебор — в `FallbackBundler`.
    */
   bundlerUrls: (): string[] =>
-    (process.env.BUNDLER_URL ?? "")
+    // BUNDLER_FALLBACK_URL — отдельная переменная для одного запасного эндпоинта;
+    // приписывается в конец списка, чтобы оба способа задать запасной работали.
+    [process.env.BUNDLER_URL ?? "", process.env.BUNDLER_FALLBACK_URL ?? ""]
+      .join(",")
       .split(",")
       .map((url) => url.trim())
       .filter(Boolean),

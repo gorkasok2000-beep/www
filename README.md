@@ -313,6 +313,9 @@ curl -X POST http://localhost:3000/api/v1/agents/me/webhooks \
 # → {"id": "…", "secret": "whsec_…"}  — секрет показывается один раз
 ```
 
+То же самое одним запросом при регистрации — поле `webhookUrl` в `POST /api/v1/agents`;
+секрет вернётся в ответе рядом с `apiKey`, тоже один раз.
+
 События: `payment.confirmed`, `payment.failed`, `payment.reorged`, `invoice.paid`
 (приходит **выставившему** счёт) и `ping`. Пустой `events` — присылать все.
 

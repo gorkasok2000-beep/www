@@ -11,7 +11,7 @@ import {CHAIN_ID} from "./env";
 /**
  * Локальная сеть (anvil): там и signerUrl агента, и приёмник вебхуков закономерно
  * живут на localhost, и SSRF-фильтры бы мешали разработке. На любой другой сети
- * приватные адреса запрещены — см. `parseCallbackUrl` и `assertResolvesPublic`.
+ * приватные адреса запрещены — см. `parseCallbackUrl` и `assertUrlResolvesPublic`.
  */
 const LOCAL_DEV = CHAIN_ID === 31337;
 
@@ -103,7 +103,7 @@ export function parseRules(value: unknown): RulesInput {
  *     там и подписант агента, и приёмник событий закономерно живут рядом).
  *
  * Для имён хостов дополнительно проверяется DNS-резолв при регистрации — см.
- * `assertResolvesPublic`; а сами запросы идут с `redirect: "manual"`, чтобы
+ * `assertUrlResolvesPublic`; а сами запросы идут с `redirect: "manual"`, чтобы
  * проверку нельзя было обойти ответом 302 (см. `chain/signer.ts`, `webhooks.ts`).
  *
  * Проверка одна на оба применения намеренно: две копии разойдутся, и слабейшая
@@ -142,13 +142,18 @@ export function parseSignerUrl(value: unknown): string | undefined {
   return parseCallbackUrl(value, "signerUrl");
 }
 
+/** Приёмник вебхуков — второй частный случай той же проверки. */
+export function parseWebhookUrl(value: unknown): string | undefined {
+  return parseCallbackUrl(value, "webhookUrl");
+}
+
 /**
  * DNS-резолв адреса при регистрации: имя хоста не должно указывать на приватный
  * адрес. Без этого фильтр по литералу обходится доменом, который резолвится в
  * 127.0.0.1. Полной гарантии не даёт (DNS-rebinding между проверкой и запросом),
  * поэтому запрос дополнительно идёт без следования редиректам.
  */
-export async function assertResolvesPublic(url: string, field: string): Promise<void> {
+export async function assertUrlResolvesPublic(url: string, field: string): Promise<void> {
   if (LOCAL_DEV) {
     return;
   }
@@ -171,9 +176,6 @@ export async function assertResolvesPublic(url: string, field: string): Promise<
   }
 }
 
-export async function assertSignerUrlResolvesPublic(url: string): Promise<void> {
-  return assertResolvesPublic(url, "signerUrl");
-}
 
 /**
  * Отсекает адреса, указывающие внутрь инфраструктуры. Вызывается и для литерала

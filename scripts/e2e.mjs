@@ -599,6 +599,20 @@ section("12. Вебхуки: подпись, идемпотентность по
     "повтор несёт тот же X-Synth-Event-Id",
   );
 
+  // Подписаться можно и сразу при регистрации — это то же самое, что POST /webhooks,
+  // просто одним запросом.
+  const atSignup = await newAgent(`hook-reg-${suffix}`, {
+    webhookUrl: "http://127.0.0.1:4477/signup",
+  });
+  ok(Boolean(atSignup.body.webhookSecret), "секрет вебхука выдан при регистрации");
+  const signupHooks = await call("/agents/me/webhooks", {apiKey: atSignup.apiKey});
+  ok(
+    signupHooks.body.webhooks?.length === 1 &&
+      signupHooks.body.webhooks[0].url.endsWith("/signup"),
+    "подписка создана вместе с агентом",
+    JSON.stringify(signupHooks.body.webhooks?.[0]?.url),
+  );
+
   const unsubscribed = await call(`/agents/me/webhooks/${subscribed.body.id}`, {
     method: "DELETE",
     apiKey: listener.apiKey,

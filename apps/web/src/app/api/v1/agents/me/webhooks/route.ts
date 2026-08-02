@@ -3,7 +3,7 @@ import {AgentError} from "@/lib/agent-error";
 import {requireAgent} from "@/lib/auth";
 import {encryptSecret, generateWebhookSecret} from "@/lib/crypto";
 import {db} from "@/lib/db";
-import {assertResolvesPublic, parseCallbackUrl} from "@/lib/validate";
+import {assertUrlResolvesPublic, parseCallbackUrl} from "@/lib/validate";
 import {WEBHOOK_EVENTS, webhookView, type WebhookEvent} from "@/lib/webhooks";
 
 /**
@@ -65,7 +65,7 @@ export const POST = route(async (request) => {
   if (!url) {
     throw new AgentError("Укажите url — адрес, куда присылать события.", 400);
   }
-  await assertResolvesPublic(url, "url");
+  await assertUrlResolvesPublic(url, "url");
 
   const events = parseEvents(body.events);
 

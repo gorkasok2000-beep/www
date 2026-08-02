@@ -18,7 +18,13 @@ import {
   type RulesInput,
 } from "./chain/registry";
 import {localSigner, remoteSigner, type Signer, type SignerMode} from "./chain/signer";
-import {decryptSecret, encryptSecret, generateApiKey, hashApiKey} from "./crypto";
+import {
+  decryptSecret,
+  encryptSecret,
+  generateApiKey,
+  generateWebhookSecret,
+  hashApiKey,
+} from "./crypto";
 import {db} from "./db";
 import {serverEnv} from "./env";
 import {activeSessionKeyRecord} from "./session-keys";
@@ -51,7 +57,8 @@ export async function createAgent(params: {
   whitelist?: Address[];
   owner?: Address;
   signerUrl?: string;
-}): Promise<{agent: Agent; apiKey: string}> {
+  webhookUrl?: string;
+}): Promise<{agent: Agent; apiKey: string; webhookSecret?: string}> {
   const handle = params.handle.trim();
   if (!/^[a-z0-9][a-z0-9-]{1,30}$/i.test(handle)) {
     throw new AgentError(
@@ -126,6 +133,10 @@ export async function createAgent(params: {
 
   const apiKey = generateApiKey();
 
+  // Секрет подписи вебхуков нужен, только если агент назвал эндпоинт для уведомлений.
+  // Показывается один раз, как и API-ключ; в базе лежит зашифрованным.
+  const webhookSecret = params.webhookUrl ? generateWebhookSecret() : undefined;
+
   // Кошелёк уже создан в сети, а запись ещё нет: если создание записи упадёт (например,
   // на уникальности `accountAddress`), наружу должен уйти внятный конфликт, а не 500 с
   // деталями базы. Ончейн-состояние при этом остаётся источником истины.
@@ -153,7 +164,20 @@ export async function createAgent(params: {
       );
     });
 
-  return {agent, apiKey};
+  // Подписка на события — обычная запись в `Webhook`, а не поле агента: подписок может
+  // быть несколько, и снять их можно, не трогая самого агента (см. `lib/webhooks.ts`).
+  // Здесь это лишь удобство: то же самое делает POST /agents/me/webhooks.
+  if (params.webhookUrl && webhookSecret) {
+    await db.webhook.create({
+      data: {
+        agentId: agent.id,
+        url: params.webhookUrl,
+        secretCiphertext: encryptSecret(webhookSecret),
+      },
+    });
+  }
+
+  return {agent, apiKey, webhookSecret};
 }
 
 /**
