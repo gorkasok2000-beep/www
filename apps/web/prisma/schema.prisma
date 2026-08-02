@@ -52,6 +52,7 @@ model Agent {
   sessionKeys     SessionKey[]
   payments        Payment[]
   issuedInvoices  Invoice[]       @relation("IssuedInvoices")
+  faucetGrants    FaucetGrant[]
 }
 
 /// Платёж как объект с идентификатором и состоянием, а не как факт «запрос вернул 201».
@@ -194,4 +195,20 @@ model TransactionLog {
 model IndexerState {
   id              String @id @default("default")
   lastBlockNumber String
+}
+
+/// Разовая выдача тестового крана.
+///
+/// Нужна для суточного лимита на агента: регистрация открыта, и без учёта выдач
+/// кран сливал бы кошелёк оператора по максимуму за запрос, просто чаще.
+model FaucetGrant {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  valueWei  String
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
 }

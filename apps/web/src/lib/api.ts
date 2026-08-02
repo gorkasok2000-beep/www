@@ -23,9 +23,10 @@ export function errorResponse(error: unknown): NextResponse {
     return json({error: error.message}, {status: error.status});
   }
 
-  const message = error instanceof Error ? error.message : "Внутренняя ошибка";
+  // Детали 500 остаются в серверном логе: сырой message может содержать внутренние
+  // пути, параметры подключения или фрагменты секретов — наружу это не отдаём.
   console.error("[api]", error);
-  return json({error: message}, {status: 500});
+  return json({error: "Внутренняя ошибка сервера."}, {status: 500});
 }
 
 /** Оборачивает обработчик роута, чтобы не дублировать try/catch в каждом файле. */

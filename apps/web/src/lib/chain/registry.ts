@@ -1,5 +1,8 @@
 import {formatEther, type Address, type Hex} from "viem";
 
+import {AgentError} from "@/lib/agent-error";
+import {serverEnv} from "@/lib/env";
+
 import {agentAccountAbi, agentRegistryAbi} from "./abis";
 import {custodianClient, operatorClient, publicClient} from "./clients";
 import {activeChain, deployment} from "./config";
@@ -202,6 +205,13 @@ export async function setWhitelistedOnchain(params: {
 export async function fundAccount(account: Address, valueWei: bigint): Promise<Hex> {
   const client = operatorClient();
 
+  // Резерв оператора неприкосновенен: без этой проверки кран (или выдача газа)
+  // при достаточной настойчивости выводил бы кошелёк оператора в ноль.
+  const balance = await publicClient().getBalance({address: client.account!.address});
+  if (balance - valueWei < OPERATOR_MIN_RESERVE_WEI) {
+    throw new AgentError("Кран исчерпан: остаток оператора близок к несгораемому резерву.", 503);
+  }
+
   const txHash = await client.sendTransaction({
     account: client.account!,
     chain: activeChain(),
@@ -212,6 +222,9 @@ export async function fundAccount(account: Address, valueWei: bigint): Promise<H
   await publicClient().waitForTransactionReceipt({hash: txHash});
   return txHash;
 }
+
+/** Минимальный остаток на кошельке оператора после любой выдачи. */
+const OPERATOR_MIN_RESERVE_WEI = 10n ** 18n; // 1 ETH
 
 /**
  * Запас газа для кастодиана.
@@ -224,6 +237,15 @@ export async function fundAccount(account: Address, valueWei: bigint): Promise<H
 const CUSTODIAN_GAS_ALLOWANCE = 5n * 10n ** 16n; // 0.05 ETH
 
 export async function ensureGasAllowance(address: Address): Promise<void> {
+  // Выдача газа — часть того же крана: на публичной сети она отключена вместе с ним,
+  // и адрес пополняет сам владелец.
+  if (!serverEnv.faucetEnabled()) {
+    throw new AgentError(
+      "Выдача газа отключена (FAUCET_ENABLED=false): пополните адрес самостоятельно.",
+      403,
+    );
+  }
+
   const balance = await publicClient().getBalance({address});
   if (balance >= CUSTODIAN_GAS_ALLOWANCE / 2n) {
     return;

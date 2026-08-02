@@ -57,7 +57,7 @@ export async function issueSessionKey(
   }
 
   const ttl = params.ttlSeconds ?? DEFAULT_TTL_SECONDS;
-  if (ttl <= 0 || ttl > MAX_TTL_SECONDS) {
+  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > MAX_TTL_SECONDS) {
     throw new AgentError(`Срок действия ключа: от 1 секунды до ${MAX_TTL_SECONDS} секунд.`, 400);
   }
 

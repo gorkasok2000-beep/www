@@ -74,6 +74,9 @@ export function remoteSigner(params: {
         method: "POST",
         headers: {"content-type": "application/json"},
         body: JSON.stringify({userOpHash, owner: params.address}),
+        // Редиректы не обслуживаем: иначе проверку signerUrl на SSRF можно было бы
+        // обойти ответом 302 на внутренний адрес.
+        redirect: "manual",
         signal: AbortSignal.timeout(params.timeoutMs ?? 10_000),
       }).catch((error: unknown) => {
         throw new AgentError(
@@ -81,6 +84,10 @@ export function remoteSigner(params: {
           502,
         );
       });
+
+      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+        throw new AgentError("Эндпоинт подписи агента ответил редиректом — это запрещено.", 502);
+      }
 
       if (!response.ok) {
         throw new AgentError(

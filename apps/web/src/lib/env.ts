@@ -29,4 +29,11 @@ export const serverEnv = {
   encryptionKey: () => required("APP_ENCRYPTION_KEY"),
 
   adminApiToken: () => required("ADMIN_API_TOKEN"),
+
+  /**
+   * Тестовый кран и выдача газа владельцам ключей. На публичной сети обязан быть
+   * выключен (FAUCET_ENABLED=false): регистрация открыта, и без этого флага кошелёк
+   * оператора сольют через кран и «бесплатный» газ.
+   */
+  faucetEnabled: () => process.env.FAUCET_ENABLED !== "false",
 };

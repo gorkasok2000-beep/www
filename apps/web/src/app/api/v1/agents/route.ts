@@ -1,7 +1,14 @@
 import {createAgent} from "@/lib/agents";
 import {json, readJson, route} from "@/lib/api";
 import {API_KEY_COOKIE} from "@/lib/auth";
-import {parseAddress, parseMode, parseRules, parseSignerUrl, parseWhitelist} from "@/lib/validate";
+import {
+  assertSignerUrlResolvesPublic,
+  parseAddress,
+  parseMode,
+  parseRules,
+  parseSignerUrl,
+  parseWhitelist,
+} from "@/lib/validate";
 
 /**
  * POST /api/v1/agents — регистрация агента.
@@ -37,11 +44,18 @@ export const POST = route(async (request) => {
   const mode = parseMode(body.mode);
   const isCustodial = mode === "HUMAN_CUSTODIAN";
 
+  // Имя хоста проверяется резолвом: фильтра по IP-литералу мало, если домен
+  // указывает внутрь инфраструктуры.
+  const signerUrl = parseSignerUrl(body.signerUrl);
+  if (signerUrl) {
+    await assertSignerUrlResolvesPublic(signerUrl);
+  }
+
   const {agent, apiKey} = await createAgent({
     handle: String(body.handle ?? ""),
     mode,
     owner: body.owner === undefined ? undefined : parseAddress(body.owner, "owner"),
-    signerUrl: parseSignerUrl(body.signerUrl),
+    signerUrl,
     rules: isCustodial && body.rules ? parseRules(body.rules) : undefined,
     whitelist: isCustodial ? parseWhitelist(body.whitelist) : [],
   });
