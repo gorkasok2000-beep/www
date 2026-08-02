@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synth Wallet — статус разработки</title>
+<style>
+  :root {
+    --bg: #faf8f5;
+    --card: #ffffff;
+    --ink: #2e2a26;
+    --ink-soft: #6b645c;
+    --ink-faint: #9a9288;
+    --line: #e8e2d9;
+    --accent: #8a6d4b;
+    --accent-soft: #f3ede4;
+    --ok: #4d7a5b;
+    --ok-bg: #eef4ef;
+    --warn: #a3703a;
+    --warn-bg: #faf3e8;
+    --crit: #9c4a3c;
+    --crit-bg: #f9eeec;
+    --pend-bg: #f4f1ec;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  header { margin-bottom: 48px; border-bottom: 2px solid var(--accent); padding-bottom: 28px; }
+  .kicker {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 12px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 10px;
+  }
+  h1 { font-size: 36px; font-weight: 700; letter-spacing: -0.5px; }
+  .sub { color: var(--ink-soft); margin-top: 8px; font-size: 17px; font-style: italic; }
+  .meta {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 12px; color: var(--ink-faint); margin-top: 14px;
+  }
+
+  section { margin-bottom: 44px; }
+  h2 {
+    font-size: 22px; margin-bottom: 16px;
+    font-family: 'Helvetica Neue', Arial, sans-serif; font-weight: 600;
+  }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 24px 28px;
+  }
+
+  /* Pipeline */
+  .pipeline { display: flex; flex-direction: column; gap: 0; }
+  .step { display: flex; gap: 18px; position: relative; padding-bottom: 26px; }
+  .step:last-child { padding-bottom: 0; }
+  .step::before {
+    content: ''; position: absolute; left: 15px; top: 34px; bottom: 0;
+    width: 2px; background: var(--line);
+  }
+  .step:last-child::before { display: none; }
+  .dot {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 14px; font-weight: 700;
+    z-index: 1;
+  }
+  .dot.done { background: var(--ok); color: #fff; }
+  .dot.next { background: var(--warn); color: #fff; }
+  .dot.todo { background: var(--pend-bg); color: var(--ink-faint); border: 1px solid var(--line); }
+  .step-body { padding-top: 3px; }
+  .step-title { font-family: 'Helvetica Neue', Arial, sans-serif; font-weight: 600; font-size: 16px; }
+  .step-desc { color: var(--ink-soft); font-size: 14.5px; margin-top: 3px; }
+  .commit {
+    display: inline-block; font-family: 'Courier New', monospace; font-size: 12.5px;
+    background: var(--accent-soft); color: var(--accent); border-radius: 4px;
+    padding: 1px 8px; margin-top: 6px; margin-right: 6px;
+  }
+
+  /* Findings table */
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th {
+    text-align: left; font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--ink-faint); padding: 10px 12px; border-bottom: 2px solid var(--line);
+  }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .fid { font-family: 'Courier New', monospace; font-weight: 700; white-space: nowrap; }
+  .sev {
+    display: inline-block; font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 9px; border-radius: 20px; white-space: nowrap;
+  }
+  .sev.blocker { background: var(--crit-bg); color: var(--crit); }
+  .sev.high { background: var(--warn-bg); color: var(--warn); }
+  .sev.medium { background: var(--pend-bg); color: var(--ink-soft); }
+  .sev.low { background: var(--pend-bg); color: var(--ink-faint); }
+  .status {
+    display: inline-block; font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+  }
+  .status.fixed { background: var(--ok-bg); color: var(--ok); }
+  .status.next { background: var(--warn-bg); color: var(--warn); }
+  .status.pending { background: var(--pend-bg); color: var(--ink-faint); }
+
+  /* Two columns */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .mini-title {
+    font-family: 'Helvetica Neue', Arial, sans-serif; font-weight: 600;
+    font-size: 14px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--accent); margin-bottom: 10px;
+  }
+  ul.tight { list-style: none; }
+  ul.tight li { padding: 6px 0 6px 22px; position: relative; font-size: 14.5px; color: var(--ink-soft); }
+  ul.tight li::before { content: '—'; position: absolute; left: 0; color: var(--accent); }
+
+  .deliv { font-family: 'Courier New', monospace; font-size: 13px; }
+  .deliv li::before { content: '>' !important; }
+
+  .gate { display: flex; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .gate:last-child { border-bottom: none; }
+  .gate .g { font-family: 'Courier New', monospace; font-weight: 700; color: var(--accent); min-width: 60px; font-size: 13px; }
+  .gate span:last-child { font-size: 14.5px; color: var(--ink-soft); }
+
+  footer {
+    margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; color: var(--ink-faint);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Совместная разработка · gorkasok2000-beep/www</div>
+    <h1>Synth Wallet — статус работ</h1>
+    <div class="sub">ERC-4337 smart wallet для ИИ-агентов: агент тратит одним HTTP-запросом, доверие перенесено с платформы на контракт</div>
+    <div class="meta">Обновлено: 2 августа 2026 · локальная ветка claude/synth-wallet-prototype-ox1cd0 · HEAD 5ba70d7 (PR-4)</div>
+  </header>
+
+  <section>
+    <h2><span class="num">01</span>Пайплайн работ</h2>
+    <div class="card">
+      <div class="pipeline">
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">Код-ревью всего репозитория</div>
+            <div class="step-desc">Контракты, сервер, web, индексатор. Найдено: 2 blocker, 7 high, 5 medium, пакет low. Отчёт: <b>code-review.md</b></div>
+            <span class="commit">8be19d1 baseline</span>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">Roadmap: от демо к реальному продукту</div>
+            <div class="step-desc">Измеримые gates, матрица ключей, риск-реестр, первые 2 недели. Отчёт: <b>roadmap.md / roadmap.docx</b></div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">PR-1 — контрактный hotfix</div>
+            <div class="step-desc">Закрыты C1 (self-call эскалация session key), H1 (апгрейд при заморозке), H7 (дубль регистрации). Независимый review: PASS.</div>
+            <span class="commit">9e697cd</span><span class="commit">merge 1c3a081</span>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">PR-2 — поколения targets session key</div>
+            <div class="step-desc">Закрыт H2: перевыпуск/отзыв ключа реально отзывает старые targets. ABI не сломан, +4 теста. Review: PASS, nit-фиксы внесены.</div>
+            <span class="commit">ffc8cba</span><span class="commit">merge 415ff03</span>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">PR-3 — серверный hotfix платежей</div>
+            <div class="step-desc">Закрыты B1, H3, H4, H5, M5: post-submit статусы, фильтрация по userOpHash, атомарные захваты платежа и счёта, TTL для CREATED. Typecheck чистый, diff проверен git apply.</div>
+            <span class="commit">e65bd5a</span>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot done">✓</div>
+          <div class="step-body">
+            <div class="step-title">PR-4 — индексатор, SSRF, валидация, кран</div>
+            <div class="step-desc">Закрыты M2 (log.address), M3 (SSRF signerUrl), M4 (валидация ввода), H6 (лимиты крана и газа). Prisma-клиент перегенерирован, tsc чистый, diff проверен git apply.</div>
+            <span class="commit">5ba70d7</span>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot next">→</div>
+          <div class="step-body">
+            <div class="step-title">CI/DX и воспроизводимость</div>
+            <div class="step-desc">.github/workflows (pnpm build + forge test), tsbuildinfo из git, README про сабмодули, scripts/check-env.mjs, судьба generated-артефактов.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="dot todo">6</div>
+          <div class="step-body">
+            <div class="step-title">Testnet-safe MVP → аудит / KMS / legal</div>
+            <div class="step-desc">По roadmap: сначала все gates безопасности, потом аудит и capped pilot. ERC-20 — только после token budgets, multichain — после координации апгрейдов.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span>Реестр находок безопасности</h2>
+    <div class="card" style="padding: 10px 16px;">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Суть</th><th>Серьёзность</th><th>Статус</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="fid">C1</td>
+            <td>Session key эскалировал себя до полного контроля через self-call <code>execute(address(this),…)</code></td>
+            <td><span class="sev blocker">Blocker</span></td>
+            <td><span class="status fixed">✓ PR-1</span></td>
+          </tr>
+          <tr>
+            <td class="fid">B1</td>
+            <td>Прошедший в сети платёж мог быть помечен FAILED → повторная оплата</td>
+            <td><span class="sev blocker">Blocker</span></td>
+            <td><span class="status fixed">✓ PR-3</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H1</td>
+            <td>Заморозка обходилась владельцем через UUPS-апгрейд</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-1</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H2</td>
+            <td>Старые sessionKeyTargets не удалялись при перевыпуске ключа</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-2</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H3</td>
+            <td>Сервер не различал события своей и чужих UserOperation</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-3</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H4</td>
+            <td>Блокировка «один платёж за раз» не атомарна</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-3</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H5</td>
+            <td>Двойная оплата одного счёта (гонка invoice)</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-3</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H6</td>
+            <td>Открытый кран и газовые выдачи могут слить кошелёк оператора</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-4</span></td>
+          </tr>
+          <tr>
+            <td class="fid">H7</td>
+            <td>Дублирующая регистрация одного аккаунта в реестре</td>
+            <td><span class="sev high">High</span></td>
+            <td><span class="status fixed">✓ PR-1</span></td>
+          </tr>
+          <tr>
+            <td class="fid">M1</td>
+            <td>Бюджет ключа считает только ETH; ERC-20 обходят бюджет через calldata</td>
+            <td><span class="sev medium">Medium</span></td>
+            <td><span class="status pending">Roadmap gate</span></td>
+          </tr>
+          <tr>
+            <td class="fid">M2</td>
+            <td>Индексатор доверяет topic0 без проверки log.address — поддельные события в витрине</td>
+            <td><span class="sev medium">Medium</span></td>
+            <td><span class="status fixed">✓ PR-4</span></td>
+          </tr>
+          <tr>
+            <td class="fid">M3</td>
+            <td>SSRF через signerUrl: нет DNS-резолва и запрета приватных диапазонов</td>
+            <td><span class="sev medium">Medium</span></td>
+            <td><span class="status fixed">✓ PR-4</span></td>
+          </tr>
+          <tr>
+            <td class="fid">M4</td>
+            <td>parseValue пропускает отрицательный valueEth; NaN → 500 вместо 400</td>
+            <td><span class="sev medium">Medium</span></td>
+            <td><span class="status fixed">✓ PR-4</span></td>
+          </tr>
+          <tr>
+            <td class="fid">M5</td>
+            <td>«Зомби»-платежи CREATED навсегда блокируют агента (409)</td>
+            <td><span class="sev medium">Medium</span></td>
+            <td><span class="status fixed">✓ PR-3</span></td>
+          </tr>
+          <tr>
+            <td class="fid">L</td>
+            <td>Нет CI; закоммичен tsbuildinfo; пустые сабмодули в tarball; cookie без secure</td>
+            <td><span class="sev low">Low</span></td>
+            <td><span class="status pending">Ожидает</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span>Что сделано в PR-1 – PR-4</h2>
+    <div class="cols">
+      <div class="card">
+        <div class="mini-title">PR-1 · контрактный hotfix</div>
+        <ul class="tight">
+          <li>Гард в _consumeSessionAllowance: ключ не может вызывать сам кошелёк и EntryPoint — закрыта эскалация через registerSessionKey / upgradeToAndCall / withdrawDepositTo</li>
+          <li>upgradeToAndCall запрещён при frozen — заморозку больше не обойти апгрейдом</li>
+          <li>AgentRegistry отклоняет повторную регистрацию одного аккаунта (AgentAlreadyRegistered)</li>
+          <li>+6 тестов: self-call, EntryPoint-withdraw, frozen upgrade, дубль реестра</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="mini-title">PR-2 · поколения targets</div>
+        <ul class="tight">
+          <li>sessionKeyGeneration + приватные targets по поколениям: старые списки недостижимы по построению</li>
+          <li>Explicit-геттер с прежним селектором — web ABI не сломан; после revoke возвращает false</li>
+          <li>Валидация читает storage напрямую: меньше газ, нет риска ERC-7562-несовместимости</li>
+          <li>+4 теста: сужение списка, revoke+reissue, гард важнее списка, геттер после revoke</li>
+        </ul>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="mini-title">PR-3 · серверный hotfix платежей</div>
+        <ul class="tight">
+          <li>execute разделён на фазы до/после отправки: ошибка после submit больше не ставит FAILED — платёж остаётся SUBMITTED до сверки (B1)</li>
+          <li>syncTransactionLogs — best-effort вне критичного пути: сбой индексатора не перезаписывает CONFIRMED (B1)</li>
+          <li>readUserOperationOutcome фильтрует события по userOpHash, смотрит receipt.status, «операции нет в чеке» = неизвестно, а не успех (H3)</li>
+          <li>Проверка in-flight и создание платежа — в одной транзакции с writer-lock SQLite: один нонс не уйдёт дважды (H4)</li>
+          <li>Счёт атомарно захватывается OPEN → PAYING; finalize закрывает его, только если он всё ещё захвачен этим платежом (H5)</li>
+          <li>CREATED старше 5 минут гасится в FAILED и освобождает счёт — «зомби» больше не блокируют агента 409 навсегда (M5)</li>
+        </ul>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="mini-title">PR-4 · индексатор, SSRF, валидация, кран</div>
+        <ul class="tight">
+          <li>Индексатор сверяет log.address с эмитентом: поддельное AgentTransaction чужого контракта не попадает на витрину (M2)</li>
+          <li>signerUrl: запрет credentials, localhost и приватных IP, DNS-резолв при регистрации, redirect: manual при запросе подписи (M3)</li>
+          <li>Отрицательный valueEth и NaN в periodSeconds/ttlSeconds — 400 вместо 500; 500-ответы без сырого error.message (M4)</li>
+          <li>FAUCET_ENABLED, суточный лимит крана 30 ETH на агента (FaucetGrant + writer-lock), резерв оператора 1 ETH, газ отключён вместе с краном (H6)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span>Gates из roadmap</h2>
+    <div class="card">
+      <div class="gate"><span class="g">Gate 1</span><span>Testnet-safe MVP: все blocker/high закрыты в коде (PR-1 – PR-4 ✓), осталось: тесты зелёные на pinned deps и воспроизводимый setup (CI/DX). <b>Сейчас здесь.</b></span></div>
+      <div class="gate"><span class="g">Gate 2</span><span>Аудит + legal + KMS: внешний аудит контрактов, ключи оператора в KMS/HSM, юридическая рамка custodial-элементов.</span></div>
+      <div class="gate"><span class="g">Gate 3</span><span>Capped pilot: реальные пользователи с жёсткими лимитами на аккаунт и на платёж, мониторинг и runbook инцидентов.</span></div>
+      <div class="gate"><span class="g">Gate 4</span><span>Production: ERC-20 только после token budgets (approve/Permit2), multichain только после координации кросс-чейн апгрейдов.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">05</span>Файлы-дельта (в папке synth-wallet-handoff)</h2>
+    <div class="card">
+      <ul class="tight deliv">
+        <li>code-review.md — полный отчёт по уязвимостям</li>
+        <li>roadmap.md / roadmap.docx — план перехода к продукту</li>
+        <li>pr1-contract-hotfix.md / .diff / .patch — PR-1 пакет</li>
+        <li>pr2-session-targets.md / .diff / .patch — PR-2 пакет</li>
+        <li>pr3-payment-hotfix.md / .diff / .patch — PR-3 пакет</li>
+        <li>pr4-hardening.md / .diff / .patch — PR-4 пакет</li>
+      </ul>
+      <p style="margin-top:16px; font-size:13.5px; color:var(--ink-faint); font-family:'Helvetica Neue',Arial,sans-serif;">
+        ⚠ Перед merge на GitHub: git submodule update --init --recursive && cd contracts && forge build && forge test — в среде агента forge недоступен, контрактные тесты PR-1/PR-2 прогоняются локально у владельца. Для PR-3/PR-4 выполнен tsc --noEmit (чисто) и проверено применение diff через git apply; после PR-4 нужны npx prisma db push и prisma generate (новая таблица FaucetGrant). Сценарный прогон на anvil — локально.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Synth Wallet · рабочий дашборд статуса</span>
+    <span>Сгенерировано агентом · 2026-08-02</span>
+  </footer>
+
+</div>
+</body>
+</html>

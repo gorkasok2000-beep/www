@@ -1,0 +1,507 @@
+diff --git a/.env.example b/.env.example
+index 09a01b7..4d99b5a 100644
+--- a/.env.example
++++ b/.env.example
+@@ -42,3 +42,7 @@ ADMIN_API_TOKEN=change-me
+ 
+ # База данных прототипа.
+ DATABASE_URL=file:./synth-wallet.db
++
++# Тестовый кран и выдача газа владельцам ключей. На публичной сети ОБЯЗАТЕЛЬНО
++# false: регистрация открыта, и с включённым краном кошелёк оператора сольют.
++# FAUCET_ENABLED=true
+diff --git a/apps/web/prisma/schema.prisma b/apps/web/prisma/schema.prisma
+index 713e022..3fccd71 100644
+--- a/apps/web/prisma/schema.prisma
++++ b/apps/web/prisma/schema.prisma
+@@ -52,6 +52,7 @@ model Agent {
+   sessionKeys     SessionKey[]
+   payments        Payment[]
+   issuedInvoices  Invoice[]       @relation("IssuedInvoices")
++  faucetGrants    FaucetGrant[]
+ }
+ 
+ /// Платёж как объект с идентификатором и состоянием, а не как факт «запрос вернул 201».
+@@ -195,3 +196,19 @@ model IndexerState {
+   id              String @id @default("default")
+   lastBlockNumber String
+ }
++
++/// Разовая выдача тестового крана.
++///
++/// Нужна для суточного лимита на агента: регистрация открыта, и без учёта выдач
++/// кран сливал бы кошелёк оператора по максимуму за запрос, просто чаще.
++model FaucetGrant {
++  id String @id @default(cuid())
++
++  agentId String
++  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
++
++  valueWei  String
++  createdAt DateTime @default(now())
++
++  @@index([agentId, createdAt])
++}
+diff --git a/apps/web/src/app/api/v1/agents/me/deposit/route.ts b/apps/web/src/app/api/v1/agents/me/deposit/route.ts
+index b51ff09..d123c20 100644
+--- a/apps/web/src/app/api/v1/agents/me/deposit/route.ts
++++ b/apps/web/src/app/api/v1/agents/me/deposit/route.ts
+@@ -1,14 +1,20 @@
+-import {formatEther, type Address} from "viem";
++import {formatEther, type Address, type Hex} from "viem";
+ 
++import {AgentError} from "@/lib/agent-error";
+ import {agentState} from "@/lib/agents";
+ import {json, readJson, route} from "@/lib/api";
+ import {requireAgent} from "@/lib/auth";
+ import {fundAccount} from "@/lib/chain/registry";
++import {db} from "@/lib/db";
++import {serverEnv} from "@/lib/env";
+ import {parseValue} from "@/lib/validate";
+ 
+ /** Верхняя граница одной выдачи крана — чтобы демо-стенд нельзя было осушить. */
+ const MAX_FAUCET_WEI = 10n ** 19n; // 10 ETH
+ 
++/** Суточный лимит выдачи на одного агента. */
++const DAILY_FAUCET_WEI = 30n * 10n ** 18n; // 30 ETH
++
+ /**
+  * POST /api/v1/agents/me/deposit — пополнить кошелёк из тестового крана.
+  *
+@@ -16,16 +22,48 @@ const MAX_FAUCET_WEI = 10n ** 19n; // 10 ETH
+  * переводом. Этот роут существует ради демонстрации на тестовой сети, где у человека
+  * может не быть тестовых средств.
+  *
++ * Кран — точка слива кошелька оператора, поэтому у него несколько рубежей: флаг
++ * FAUCET_ENABLED, лимит одной выдачи, суточный лимит на агента и несгораемый
++ * резерв оператора в `fundAccount`.
++ *
+  * Тело: {"valueEth": "1"}
+  */
+ export const POST = route(async (request) => {
++  if (!serverEnv.faucetEnabled()) {
++    throw new AgentError("Тестовый кран отключён (FAUCET_ENABLED=false).", 403);
++  }
++
+   const agent = await requireAgent(request);
+   const body = await readJson<{valueWei?: unknown; valueEth?: unknown}>(request);
+ 
+   const valueWei = parseValue(body);
+   const capped = valueWei > MAX_FAUCET_WEI ? MAX_FAUCET_WEI : valueWei;
+ 
+-  const txHash = await fundAccount(agent.accountAddress as Address, capped);
++  // Проверка суточного лимита и запись о выдаче — в одной транзакции с writer-lock,
++  // иначе два параллельных запроса оба прошли бы проверку (та же гонка, что и с
++  // платежами, см. payments.ts).
++  const grant = await db.$transaction(async (tx) => {
++    await tx.$executeRaw`UPDATE "Agent" SET "id" = "id" WHERE "id" = ${agent.id}`;
++
++    const recent = await tx.faucetGrant.findMany({
++      where: {agentId: agent.id, createdAt: {gte: new Date(Date.now() - 24 * 60 * 60 * 1000)}},
++    });
++    const spent = recent.reduce((sum, entry) => sum + BigInt(entry.valueWei), 0n);
++    if (spent + capped > DAILY_FAUCET_WEI) {
++      throw new AgentError("Суточный лимит крана для этого агента исчерпан.", 429);
++    }
++    return tx.faucetGrant.create({data: {agentId: agent.id, valueWei: capped.toString()}});
++  });
++
++  let txHash: Hex;
++  try {
++    txHash = await fundAccount(agent.accountAddress as Address, capped);
++  } catch (error) {
++    // Выдача не состоялась — лимит возвращаем агенту.
++    await db.faucetGrant.delete({where: {id: grant.id}}).catch(() => {});
++    throw error;
++  }
++
+   const state = await agentState(agent);
+ 
+   return json({
+diff --git a/apps/web/src/app/api/v1/agents/route.ts b/apps/web/src/app/api/v1/agents/route.ts
+index 612763e..a229743 100644
+--- a/apps/web/src/app/api/v1/agents/route.ts
++++ b/apps/web/src/app/api/v1/agents/route.ts
+@@ -1,7 +1,14 @@
+ import {createAgent} from "@/lib/agents";
+ import {json, readJson, route} from "@/lib/api";
+ import {API_KEY_COOKIE} from "@/lib/auth";
+-import {parseAddress, parseMode, parseRules, parseSignerUrl, parseWhitelist} from "@/lib/validate";
++import {
++  assertSignerUrlResolvesPublic,
++  parseAddress,
++  parseMode,
++  parseRules,
++  parseSignerUrl,
++  parseWhitelist,
++} from "@/lib/validate";
+ 
+ /**
+  * POST /api/v1/agents — регистрация агента.
+@@ -37,11 +44,18 @@ export const POST = route(async (request) => {
+   const mode = parseMode(body.mode);
+   const isCustodial = mode === "HUMAN_CUSTODIAN";
+ 
++  // Имя хоста проверяется резолвом: фильтра по IP-литералу мало, если домен
++  // указывает внутрь инфраструктуры.
++  const signerUrl = parseSignerUrl(body.signerUrl);
++  if (signerUrl) {
++    await assertSignerUrlResolvesPublic(signerUrl);
++  }
++
+   const {agent, apiKey} = await createAgent({
+     handle: String(body.handle ?? ""),
+     mode,
+     owner: body.owner === undefined ? undefined : parseAddress(body.owner, "owner"),
+-    signerUrl: parseSignerUrl(body.signerUrl),
++    signerUrl,
+     rules: isCustodial && body.rules ? parseRules(body.rules) : undefined,
+     whitelist: isCustodial ? parseWhitelist(body.whitelist) : [],
+   });
+diff --git a/apps/web/src/lib/api.ts b/apps/web/src/lib/api.ts
+index 516b926..fe635de 100644
+--- a/apps/web/src/lib/api.ts
++++ b/apps/web/src/lib/api.ts
+@@ -23,9 +23,10 @@ export function errorResponse(error: unknown): NextResponse {
+     return json({error: error.message}, {status: error.status});
+   }
+ 
+-  const message = error instanceof Error ? error.message : "Внутренняя ошибка";
++  // Детали 500 остаются в серверном логе: сырой message может содержать внутренние
++  // пути, параметры подключения или фрагменты секретов — наружу это не отдаём.
+   console.error("[api]", error);
+-  return json({error: message}, {status: 500});
++  return json({error: "Внутренняя ошибка сервера."}, {status: 500});
+ }
+ 
+ /** Оборачивает обработчик роута, чтобы не дублировать try/catch в каждом файле. */
+diff --git a/apps/web/src/lib/chain/indexer.ts b/apps/web/src/lib/chain/indexer.ts
+index faa067a..419f37c 100644
+--- a/apps/web/src/lib/chain/indexer.ts
++++ b/apps/web/src/lib/chain/indexer.ts
+@@ -8,7 +8,10 @@ import {publicClient} from "./clients";
+  * Индексатор публичного лога.
+  *
+  * Событие `AgentTransaction` эмитит сам кошелёк, поэтому фильтр по одной теме собирает
+- * траты всех агентов сразу — знать список кошельков заранее не нужно. Результат
++ * траты всех агентов сразу — знать список кошельков заранее не нужно. Тема при этом
++ * проверяет только сигнатуру события, но не эмитента: чужой контракт может выпустить
++ * такое же событие от имени нашего кошелька. Поэтому каждый лог дополнительно сверяется
++ * по `log.address` — иначе поддельная трата попадала бы в кэш и на витрину. Результат
+  * складывается в SQLite, чтобы дашборд и витрина не дёргали ноду на каждый рендер.
+  * Источником истины остаётся блокчейн: при расхождении достаточно очистить кэш.
+  */
+@@ -41,6 +44,13 @@ export async function syncTransactionLogs(): Promise<{indexed: number; toBlock:
+   let indexed = 0;
+   for (const log of logs) {
+     const account = log.args.account as Address;
++
++    // Событие обязан эмитить сам кошелёк: фильтр по topic0 пропустил бы и поддельный
++    // AgentTransaction, выпущенный чужим контрактом от имени нашего агента.
++    if (log.address.toLowerCase() !== account.toLowerCase()) {
++      continue;
++    }
++
+     const agent = await db.agent.findUnique({where: {accountAddress: account}});
+     if (!agent) {
+       continue; // кошелёк создан в обход нашего API — на витрину такие не попадают
+diff --git a/apps/web/src/lib/chain/registry.ts b/apps/web/src/lib/chain/registry.ts
+index 5715054..88cff10 100644
+--- a/apps/web/src/lib/chain/registry.ts
++++ b/apps/web/src/lib/chain/registry.ts
+@@ -1,5 +1,8 @@
+ import {formatEther, type Address, type Hex} from "viem";
+ 
++import {AgentError} from "@/lib/agent-error";
++import {serverEnv} from "@/lib/env";
++
+ import {agentAccountAbi, agentRegistryAbi} from "./abis";
+ import {custodianClient, operatorClient, publicClient} from "./clients";
+ import {activeChain, deployment} from "./config";
+@@ -202,6 +205,13 @@ export async function setWhitelistedOnchain(params: {
+ export async function fundAccount(account: Address, valueWei: bigint): Promise<Hex> {
+   const client = operatorClient();
+ 
++  // Резерв оператора неприкосновенен: без этой проверки кран (или выдача газа)
++  // при достаточной настойчивости выводил бы кошелёк оператора в ноль.
++  const balance = await publicClient().getBalance({address: client.account!.address});
++  if (balance - valueWei < OPERATOR_MIN_RESERVE_WEI) {
++    throw new AgentError("Кран исчерпан: остаток оператора близок к несгораемому резерву.", 503);
++  }
++
+   const txHash = await client.sendTransaction({
+     account: client.account!,
+     chain: activeChain(),
+@@ -213,6 +223,9 @@ export async function fundAccount(account: Address, valueWei: bigint): Promise<H
+   return txHash;
+ }
+ 
++/** Минимальный остаток на кошельке оператора после любой выдачи. */
++const OPERATOR_MIN_RESERVE_WEI = 10n ** 18n; // 1 ETH
++
+ /**
+  * Запас газа для кастодиана.
+  *
+@@ -224,6 +237,15 @@ export async function fundAccount(account: Address, valueWei: bigint): Promise<H
+ const CUSTODIAN_GAS_ALLOWANCE = 5n * 10n ** 16n; // 0.05 ETH
+ 
+ export async function ensureGasAllowance(address: Address): Promise<void> {
++  // Выдача газа — часть того же крана: на публичной сети она отключена вместе с ним,
++  // и адрес пополняет сам владелец.
++  if (!serverEnv.faucetEnabled()) {
++    throw new AgentError(
++      "Выдача газа отключена (FAUCET_ENABLED=false): пополните адрес самостоятельно.",
++      403,
++    );
++  }
++
+   const balance = await publicClient().getBalance({address});
+   if (balance >= CUSTODIAN_GAS_ALLOWANCE / 2n) {
+     return;
+diff --git a/apps/web/src/lib/chain/signer.ts b/apps/web/src/lib/chain/signer.ts
+index d93c7c8..7a41361 100644
+--- a/apps/web/src/lib/chain/signer.ts
++++ b/apps/web/src/lib/chain/signer.ts
+@@ -74,6 +74,9 @@ export function remoteSigner(params: {
+         method: "POST",
+         headers: {"content-type": "application/json"},
+         body: JSON.stringify({userOpHash, owner: params.address}),
++        // Редиректы не обслуживаем: иначе проверку signerUrl на SSRF можно было бы
++        // обойти ответом 302 на внутренний адрес.
++        redirect: "manual",
+         signal: AbortSignal.timeout(params.timeoutMs ?? 10_000),
+       }).catch((error: unknown) => {
+         throw new AgentError(
+@@ -82,6 +85,10 @@ export function remoteSigner(params: {
+         );
+       });
+ 
++      if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
++        throw new AgentError("Эндпоинт подписи агента ответил редиректом — это запрещено.", 502);
++      }
++
+       if (!response.ok) {
+         throw new AgentError(
+           `Эндпоинт подписи агента ответил ${response.status}.`,
+diff --git a/apps/web/src/lib/env.ts b/apps/web/src/lib/env.ts
+index 192e6e9..941a511 100644
+--- a/apps/web/src/lib/env.ts
++++ b/apps/web/src/lib/env.ts
+@@ -29,4 +29,11 @@ export const serverEnv = {
+   encryptionKey: () => required("APP_ENCRYPTION_KEY"),
+ 
+   adminApiToken: () => required("ADMIN_API_TOKEN"),
++
++  /**
++   * Тестовый кран и выдача газа владельцам ключей. На публичной сети обязан быть
++   * выключен (FAUCET_ENABLED=false): регистрация открыта, и без этого флага кошелёк
++   * оператора сольют через кран и «бесплатный» газ.
++   */
++  faucetEnabled: () => process.env.FAUCET_ENABLED !== "false",
+ };
+diff --git a/apps/web/src/lib/invoices.ts b/apps/web/src/lib/invoices.ts
+index 91e3d8f..e4c4173 100644
+--- a/apps/web/src/lib/invoices.ts
++++ b/apps/web/src/lib/invoices.ts
+@@ -28,7 +28,7 @@ export async function issueInvoice(
+   }
+ 
+   const ttl = params.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+-  if (ttl <= 0 || ttl > MAX_TTL_SECONDS) {
++  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > MAX_TTL_SECONDS) {
+     throw new AgentError(`Срок жизни счёта: от 1 секунды до ${MAX_TTL_SECONDS} секунд.`, 400);
+   }
+ 
+diff --git a/apps/web/src/lib/session-keys.ts b/apps/web/src/lib/session-keys.ts
+index 75f8aa3..2756a02 100644
+--- a/apps/web/src/lib/session-keys.ts
++++ b/apps/web/src/lib/session-keys.ts
+@@ -57,7 +57,7 @@ export async function issueSessionKey(
+   }
+ 
+   const ttl = params.ttlSeconds ?? DEFAULT_TTL_SECONDS;
+-  if (ttl <= 0 || ttl > MAX_TTL_SECONDS) {
++  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > MAX_TTL_SECONDS) {
+     throw new AgentError(`Срок действия ключа: от 1 секунды до ${MAX_TTL_SECONDS} секунд.`, 400);
+   }
+ 
+diff --git a/apps/web/src/lib/validate.ts b/apps/web/src/lib/validate.ts
+index cc883c3..b105972 100644
+--- a/apps/web/src/lib/validate.ts
++++ b/apps/web/src/lib/validate.ts
+@@ -1,10 +1,20 @@
++import {lookup} from "node:dns/promises";
++
+ import {isAddress, parseEther, type Address} from "viem";
+ 
+ import {AgentError, AGENT_MODES, type AgentMode} from "./agents";
+ import type {RulesInput} from "./chain/registry";
++import {CHAIN_ID} from "./env";
+ 
+ /** Разбор входных данных API без внешних зависимостей — прототипу хватает. */
+ 
++/**
++ * Локальная сеть (anvil): там signerUrl агента закономерно живёт на localhost,
++ * и SSRF-фильтры бы мешали разработке. На любой другой сети приватные адреса
++ * в signerUrl запрещены — см. `parseSignerUrl` и `assertSignerUrlResolvesPublic`.
++ */
++const LOCAL_DEV = CHAIN_ID === 31337;
++
+ export function parseAddress(value: unknown, field: string): Address {
+   if (typeof value !== "string" || !isAddress(value)) {
+     throw new AgentError(`Поле ${field} должно быть Ethereum-адресом.`, 400);
+@@ -37,11 +47,17 @@ export function parseValue(body: {valueWei?: unknown; valueEth?: unknown}): bigi
+   }
+ 
+   if (typeof body.valueEth === "string" || typeof body.valueEth === "number") {
++    let value: bigint;
+     try {
+-      return parseEther(String(body.valueEth));
++      // parseEther принимает и отрицательные числа — отсекаем их сами.
++      value = parseEther(String(body.valueEth));
+     } catch {
+       throw new AgentError("Поле valueEth должно быть числом в ETH.", 400);
+     }
++    if (value < 0n) {
++      throw new AgentError("Поле valueEth не может быть отрицательным.", 400);
++    }
++    return value;
+   }
+ 
+   throw new AgentError("Укажите сумму: valueWei или valueEth.", 400);
+@@ -59,10 +75,13 @@ export function parseRules(value: unknown): RulesInput {
+       ? 0n
+       : parseValue({valueWei: raw.limitWei, valueEth: raw.limitEth});
+ 
+-  const periodSeconds = raw.periodSeconds === undefined ? 0n : BigInt(Number(raw.periodSeconds));
+-  if (periodSeconds < 0n) {
+-    throw new AgentError("Поле periodSeconds не может быть отрицательным.", 400);
++  // Number("abc") даёт NaN, а BigInt(NaN) бросает RangeError — без проверки это был
++  // бы 500 вместо внятного 400.
++  const rawPeriod = raw.periodSeconds === undefined ? 0 : Number(raw.periodSeconds);
++  if (!Number.isInteger(rawPeriod) || rawPeriod < 0) {
++    throw new AgentError("Поле periodSeconds должно быть неотрицательным целым числом.", 400);
+   }
++  const periodSeconds = BigInt(rawPeriod);
+ 
+   return {
+     limitWei,
+@@ -74,10 +93,17 @@ export function parseRules(value: unknown): RulesInput {
+ /**
+  * Эндпоинт, у которого платформа спрашивает подпись.
+  *
+- * Платформа сама ходит по этому адресу, поэтому схема ограничена http/https: иначе
+- * агент мог бы заставить сервер дёрнуть `file:` или другой внутренний протокол.
+- * Полноценная защита от SSRF (запрет приватных диапазонов, резолв DNS до запроса) —
+- * задача продакшена, здесь отсечены только очевидные случаи.
++ * Платформа сама ходит по этому адресу, поэтому без фильтров агент мог бы читать
++ * внутреннюю сеть через наш сервер (SSRF). Что отсечено здесь, синхронно:
++ *
++ *   - схемы кроме http/https — иначе сервер дёргал бы `file:` и прочие протоколы;
++ *   - логин/пароль в URL;
++ *   - localhost и приватные/служебные IP-литералы (на локальной сети — разрешены,
++ *     там signerUrl агента закономерно живёт рядом).
++ *
++ * Для имён хостов дополнительно проверяется DNS-резолв при регистрации — см.
++ * `assertSignerUrlResolvesPublic`; а сам запрос идёт с `redirect: "manual"`,
++ * чтобы проверку нельзя было обойти ответом 302 (см. `chain/signer.ts`).
+  */
+ export function parseSignerUrl(value: unknown): string | undefined {
+   if (value === undefined || value === null || value === "") {
+@@ -98,9 +124,96 @@ export function parseSignerUrl(value: unknown): string | undefined {
+     throw new AgentError("signerUrl должен использовать http или https.", 400);
+   }
+ 
++  if (url.username || url.password) {
++    throw new AgentError("signerUrl не должен содержать логин и пароль.", 400);
++  }
++
++  assertPublicHostname(url.hostname);
++
+   return url.toString();
+ }
+ 
++/**
++ * DNS-резолв signerUrl при регистрации: имя хоста не должно указывать на приватный
++ * адрес. Без этого фильтр по литералу обходится доменом, который резолвится в
++ * 127.0.0.1. Полной гарантии не даёт (DNS-rebinding между проверкой и запросом),
++ * поэтому запрос дополнительно идёт без следования редиректам.
++ */
++export async function assertSignerUrlResolvesPublic(url: string): Promise<void> {
++  if (LOCAL_DEV) {
++    return;
++  }
++
++  const bare = bareHostname(new URL(url).hostname);
++  if (isPrivateIp(bare) || bare.includes(":") || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(bare)) {
++    return; // IP-литерал: приватный уже отклонён в parseSignerUrl, публичному резолв не нужен
++  }
++
++  let addresses: {address: string}[];
++  try {
++    addresses = await lookup(bare, {all: true, verbatim: true});
++  } catch {
++    throw new AgentError(`Домен signerUrl не резолвится: ${bare}.`, 400);
++  }
++  for (const {address} of addresses) {
++    if (isPrivateIp(address)) {
++      throw new AgentError(`signerUrl резолвится в приватный адрес ${address}.`, 400);
++    }
++  }
++}
++
++/**
++ * Отсекает адреса, указывающие внутрь инфраструктуры. Вызывается и для литерала
++ * из URL, и (через isPrivateIp) для каждого адреса из DNS-ответа.
++ */
++function assertPublicHostname(hostname: string): void {
++  if (LOCAL_DEV) {
++    return;
++  }
++
++  const host = hostname.toLowerCase();
++  if (host === "localhost" || host.endsWith(".localhost")) {
++    throw new AgentError("signerUrl не может указывать на localhost.", 400);
++  }
++  if (isPrivateIp(bareHostname(host))) {
++    throw new AgentError("signerUrl не может указывать на приватный или служебный IP.", 400);
++  }
++}
++
++/** IPv6-адрес в URL приходит в квадратных скобках — снимаем их. */
++function bareHostname(hostname: string): string {
++  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
++}
++
++/** Приватные, loopback, link-local, multicast и прочие немаршрутизируемые диапазоны. */
++function isPrivateIp(ip: string): boolean {
++  // IPv4, в том числе в записи IPv6 (::ffff:127.0.0.1).
++  const v4 = ip.replace(/^::ffff:/i, "");
++  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(v4)) {
++    const [a, b] = v4.split(".").map(Number);
++    return (
++      a === 0 || // «этот хост»
++      a === 10 || // RFC 1918
++      a === 127 || // loopback
++      (a === 100 && b >= 64 && b <= 127) || // CGNAT
++      (a === 169 && b === 254) || // link-local
++      (a === 172 && b >= 16 && b <= 31) || // RFC 1918
++      (a === 192 && b === 168) || // RFC 1918
++      a >= 224 // multicast и зарезервированное
++    );
++  }
++  if (ip.includes(":")) {
++    const firstWord = parseInt(ip.split(":")[0] || "0", 16);
++    return (
++      ip === "::" ||
++      ip === "::1" ||
++      (firstWord & 0xfe00) === 0xfc00 || // fc00::/7 — unique local
++      (firstWord & 0xffc0) === 0xfe80 // fe80::/10 — link-local
++    );
++  }
++  return false; // не IP-литерал, а имя хоста — его проверяет DNS-резолв
++}
++
+ /**
+  * Ключ идемпотентности из заголовка `Idempotency-Key`.
+  *

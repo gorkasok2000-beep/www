@@ -1,0 +1,236 @@
+diff --git a/contracts/src/AgentAccount.sol b/contracts/src/AgentAccount.sol
+index f71c5bb..dd78cbe 100644
+--- a/contracts/src/AgentAccount.sol
++++ b/contracts/src/AgentAccount.sol
+@@ -252,10 +252,21 @@ contract AgentAccount is SimpleAccount {
+         BaseAccount.Call[] memory calls = SessionKeys.decodeCalls(callData);
+ 
+         for (uint256 i = 0; i < calls.length; i++) {
++            address target = calls[i].target;
++            // Ключу закрыты вызовы самого кошелька и EntryPoint — независимо от списка
++            // разрешённых получателей. Иначе через `execute(address(this), 0, …)` ключ
++            // вызвал бы методы «только для владельца» (`registerSessionKey`,
++            // `upgradeToAndCall`, `withdrawDepositTo`): в `SimpleAccount` onlyOwner
++            // пропускает вызов от имени самого аккаунта, а через вызов EntryPoint
++            // ключ снял бы депозит на газ в обход своего бюджета.
++            require(
++                target != address(this) && target != address(entryPoint()),
++                SessionKeys.SessionTargetNotAllowed(target)
++            );
+             if (key.targetsRestricted) {
+                 require(
+-                    sessionKeyTargets[signer][calls[i].target],
+-                    SessionKeys.SessionTargetNotAllowed(calls[i].target)
++                    sessionKeyTargets[signer][target],
++                    SessionKeys.SessionTargetNotAllowed(target)
+                 );
+             }
+             key.consume(calls[i].value);
+@@ -362,6 +373,26 @@ contract AgentAccount is SimpleAccount {
+     // Администрирование (реестр)
+     // ---------------------------------------------------------------------
+ 
++    /**
++     * @notice Апгрейд реализации запрещён замороженному кошельку.
++     * @dev Иначе заблокированный за мошенничество агент увёл бы кошелёк на новую
++     *      реализацию в обход реестра. Права на апгрейд не меняются: `super`
++     *      сохраняет `onlyProxy` и вызов базового `_authorizeUpgrade`, где права
++     *      остаются за владельцем, как в `SimpleAccount` (UUPS).
++     *
++     *      Проверка вешается на публичный UUPS-метод, а не на `_authorizeUpgrade`:
++     *      в account-abstraction v0.9.0 `SimpleAccount._authorizeUpgrade` объявлен
++     *      БЕЗ `virtual`, поэтому переопределить его в наследнике нельзя.
++     */
++    function upgradeToAndCall(address newImplementation, bytes memory data)
++        public
++        payable
++        override
++    {
++        require(!frozen, AccountFrozen());
++        super.upgradeToAndCall(newImplementation, data);
++    }
++
+     /// @notice Обратимая заморозка. Вызывается только реестром.
+     function setFrozen(bool value) external {
+         address registry_ = registry;
+diff --git a/contracts/src/AgentRegistry.sol b/contracts/src/AgentRegistry.sol
+index a5e75a6..b026cc0 100644
+--- a/contracts/src/AgentRegistry.sol
++++ b/contracts/src/AgentRegistry.sol
+@@ -42,6 +42,7 @@ contract AgentRegistry is Ownable {
+ 
+     error EmptyHandle();
+     error HandleAlreadyTaken(string handle);
++    error AgentAlreadyRegistered(address account);
+     error UnknownAgent(address account);
+     error CustodianRequired();
+ 
+@@ -76,6 +77,11 @@ contract AgentRegistry is Ownable {
+ 
+         account = address(factory.createAccount(owner, custodian, rules, whitelist, salt));
+ 
++        // Фабрика детерминированная: те же параметры и соль возвращают уже созданный
++        // кошелёк. Повторная регистрация его под другим handle породила бы вторую
++        // запись о том же кошельке и рассинхронизацию `_indexOf` — запрещаем.
++        require(_indexOf[account] == 0, AgentAlreadyRegistered(account));
++
+         handleTaken[handleKey] = true;
+         _agents.push(
+             AgentRecord({
+diff --git a/contracts/test/AgentAccount.t.sol b/contracts/test/AgentAccount.t.sol
+index bd5baf8..9a8a92e 100644
+--- a/contracts/test/AgentAccount.t.sol
++++ b/contracts/test/AgentAccount.t.sol
+@@ -2,6 +2,7 @@
+ pragma solidity ^0.8.28;
+ 
+ import {BaseAccount} from "@account-abstraction/contracts/core/BaseAccount.sol";
++import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+ 
+ import {SynthWalletTest} from "./SynthWalletTest.t.sol";
+ import {AgentAccount} from "../src/AgentAccount.sol";
+@@ -227,6 +228,27 @@ contract AgentAccountTest is SynthWalletTest {
+         assertEq(merchant.balance, 1 ether);
+     }
+ 
++    /// @dev Замороженный кошелёк не может сменить реализацию даже руками владельца:
++    ///      иначе блокировка обходилась бы апгрейдом на реализацию без контроля реестра.
++    function test_RevertWhen_FrozenAccountUpgrades() public {
++        AgentAccount account = _registerAutonomous("orion");
++        AgentAccount newImplementation = new AgentAccount(IEntryPoint(address(entryPoint)));
++
++        vm.prank(admin);
++        registry.setFrozen(address(account), true);
++
++        vm.prank(agentOwner);
++        vm.expectRevert(AgentAccount.AccountFrozen.selector);
++        account.upgradeToAndCall(address(newImplementation), "");
++
++        // После разморозки апгрейд снова возможен — ограничение обратимо.
++        vm.prank(admin);
++        registry.setFrozen(address(account), false);
++
++        vm.prank(agentOwner);
++        account.upgradeToAndCall(address(newImplementation), "");
++    }
++
+     // ------------------------------------------------------------------
+     // Инициализация
+     // ------------------------------------------------------------------
+diff --git a/contracts/test/AgentRegistry.t.sol b/contracts/test/AgentRegistry.t.sol
+index c6b1607..bb40edb 100644
+--- a/contracts/test/AgentRegistry.t.sol
++++ b/contracts/test/AgentRegistry.t.sol
+@@ -61,6 +61,20 @@ contract AgentRegistryTest is SynthWalletTest {
+         registry.registerAgent("orion", agentOwner, address(0), _noRules(), _noWhitelist(), 1);
+     }
+ 
++    /**
++     * @dev Фабрика детерминированная: те же параметры и соль возвращают уже созданный
++     *      кошелёк. Без проверки его регистрировали бы повторно под другим handle —
++     *      и в `_agents` появилась бы вторая запись о том же кошельке.
++     */
++    function test_RevertWhen_AccountAlreadyRegistered() public {
++        AgentAccount account = _registerAutonomous("orion");
++
++        vm.expectRevert(
++            abi.encodeWithSelector(AgentRegistry.AgentAlreadyRegistered.selector, address(account))
++        );
++        registry.registerAgent("orion-copy", agentOwner, address(0), _noRules(), _noWhitelist(), 0);
++    }
++
+     function test_RevertWhen_HandleEmpty() public {
+         vm.expectRevert(AgentRegistry.EmptyHandle.selector);
+         registry.registerAgent("", agentOwner, address(0), _noRules(), _noWhitelist(), 0);
+diff --git a/contracts/test/SessionKeys.t.sol b/contracts/test/SessionKeys.t.sol
+index 5402b5b..7cff8d7 100644
+--- a/contracts/test/SessionKeys.t.sol
++++ b/contracts/test/SessionKeys.t.sol
+@@ -4,7 +4,9 @@ pragma solidity ^0.8.28;
+ import {BaseAccount} from "@account-abstraction/contracts/core/BaseAccount.sol";
+ import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+ import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
++import {IStakeManager} from "@account-abstraction/contracts/interfaces/IStakeManager.sol";
+ import {SimpleAccount} from "@account-abstraction/contracts/accounts/SimpleAccount.sol";
++import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+ 
+ import {SynthWalletTest} from "./SynthWalletTest.t.sol";
+ import {AgentAccount} from "../src/AgentAccount.sol";
+@@ -254,6 +256,77 @@ contract SessionKeysTest is SynthWalletTest {
+         _handleOp(op);
+     }
+ 
++    // ------------------------------------------------------------------
++    // Привилегированные цели закрыты даже через execute
++    // ------------------------------------------------------------------
++
++    /**
++     * @dev Раньше проверка разрешённых методов смотрела только на селектор самой
++     *      операции: `execute(address(this), 0, registerSessionKey(...))` проходил
++     *      валидацию с нулевым расходом бюджета, а на исполнении onlyOwner пускал
++     *      вызов от имени самого аккаунта. Теперь адрес кошелька как цель запрещён.
++     */
++    function test_RevertWhen_SessionKeyCallsRegisterSessionKeyThroughSelf() public {
++        AgentAccount account = _fundedWithKey(1 ether);
++
++        bytes memory inner = abi.encodeCall(
++            AgentAccount.registerSessionKey,
++            (platform, 0, uint48(block.timestamp) + KEY_LIFETIME, 100 ether, _noWhitelist())
++        );
++        bytes memory callData = _executeCalldata(address(account), 0, inner);
++
++        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
++        _expectValidationRevert(
++            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
++        );
++        _handleOp(op);
++
++        assertEq(account.sessionKeyRemaining(platform), 1 ether);
++    }
++
++    /// @dev Тот же запрет закрывает апгрейд реализации: цель снова сам кошелёк.
++    function test_RevertWhen_SessionKeyCallsUpgradeThroughSelf() public {
++        AgentAccount account = _fundedWithKey(1 ether);
++
++        bytes memory inner = abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (stranger, ""));
++        bytes memory callData = _executeCalldata(address(account), 0, inner);
++
++        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
++        _expectValidationRevert(
++            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
++        );
++        _handleOp(op);
++    }
++
++    /// @dev И вывод депозита на газ: через self-call он шёл бы мимо бюджета ключа.
++    function test_RevertWhen_SessionKeyCallsWithdrawDepositThroughSelf() public {
++        AgentAccount account = _fundedWithKey(1 ether);
++
++        bytes memory inner = abi.encodeCall(SimpleAccount.withdrawDepositTo, (payable(platform), 1 ether));
++        bytes memory callData = _executeCalldata(address(account), 0, inner);
++
++        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
++        _expectValidationRevert(
++            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(account))
++        );
++        _handleOp(op);
++    }
++
++    /// @dev EntryPoint как цель тоже запрещён: иначе `withdrawTo` снял бы депозит напрямую.
++    function test_RevertWhen_SessionKeyCallsEntryPoint() public {
++        AgentAccount account = _fundedWithKey(1 ether);
++
++        // `withdrawTo` живёт в IStakeManager, который расширяет IEntryPoint.
++        bytes memory inner = abi.encodeCall(IStakeManager.withdrawTo, (payable(platform), 1 ether));
++        bytes memory callData = _executeCalldata(address(entryPoint), 0, inner);
++
++        PackedUserOperation memory op = _signedUserOp(address(account), callData, platformKey);
++        _expectValidationRevert(
++            abi.encodeWithSelector(SessionKeys.SessionTargetNotAllowed.selector, address(entryPoint))
++        );
++        _handleOp(op);
++    }
++
+     // ------------------------------------------------------------------
+     // Срок действия
+     // ------------------------------------------------------------------
