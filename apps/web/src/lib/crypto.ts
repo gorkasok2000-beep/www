@@ -1,4 +1,4 @@
-import {createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual} from "node:crypto";
+import {createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual} from "node:crypto";
 
 import {serverEnv} from "./env";
 
@@ -72,6 +72,23 @@ export function hashRequest(parts: Record<string, string>): string {
     .join("&");
 
   return createHash("sha256").update(canonical).digest("hex");
+}
+
+/** Секрет подписки на вебхуки. Как и API-ключ, показывается один раз. */
+export function generateWebhookSecret(): string {
+  return `whsec_${randomBytes(24).toString("hex")}`;
+}
+
+/**
+ * Подпись вебхука: `hmac-sha256(secret, "<timestamp>.<body>")`.
+ *
+ * Метка времени входит в подписываемую строку, а не только в заголовок: иначе
+ * перехваченный запрос можно было бы бесконечно переигрывать на том же эндпоинте,
+ * и подпись оставалась бы валидной. Потребитель обязан проверить и подпись, и то,
+ * что метка свежая.
+ */
+export function signWebhook(secret: string, timestamp: number, body: string): string {
+  return createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
 }
 
 /** Сравнение хешей за постоянное время — чтобы не подсказывать ключ по таймингу. */

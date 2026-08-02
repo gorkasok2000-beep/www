@@ -18,6 +18,7 @@
     "check-env": "node scripts/check-env.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
     "reindex": "node scripts/reindex.mjs",
+    "webhooks:flush": "node scripts/webhooks-flush.mjs",
     "db:migrate": "pnpm --filter web db:migrate"
   },
   "engines": {

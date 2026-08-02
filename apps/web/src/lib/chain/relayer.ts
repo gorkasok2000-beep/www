@@ -1,12 +1,15 @@
 import {decodeEventLog, numberToHex, parseAbiItem, sliceHex, type Address, type Hex} from "viem";
 
+import {AgentError} from "@/lib/agent-error";
 import {serverEnv} from "@/lib/env";
+import {describeError, log} from "@/lib/log";
 
 import {entryPointAbi} from "./abis";
 import {fromRevertData} from "./errors";
 import {operatorAddress, operatorClient, publicClient} from "./clients";
 import {activeChain, deployment} from "./config";
 import {estimateFees} from "./gas";
+import {BundlerUnreachable, bundlerLabel, bundlerRpc} from "./jsonrpc";
 import type {Signer} from "./signer";
 import {
   buildUserOperation,
@@ -23,6 +26,9 @@ import {
  * сам вызывает `EntryPoint.handleOps` с EOA оператора: для контракта это тот же путь
  * исполнения, что и в проде. Как только появится URL настоящего бандлера, включается
  * `RpcBundler` — код кошелька и API при этом не меняются.
+ *
+ * `BUNDLER_URL` — список через запятую: бандлер внешний, и его недоступность иначе
+ * означает, что агент не может потратить ничего. Перебор делает `FallbackBundler`.
  */
 export interface Bundler {
   readonly kind: "local" | "rpc";
@@ -50,19 +56,33 @@ class LocalHandleOpsBundler implements Bundler {
   }
 }
 
+/** Опрос чека — операция уже принята, ждать ответа долго незачем. */
+const POLL_TIMEOUT_MS = 5_000;
+
 class RpcBundler implements Bundler {
   readonly kind = "rpc";
 
   constructor(private readonly url: string) {}
+
+  get label(): string {
+    return bundlerLabel(this.url);
+  }
 
   async send(userOp: PackedUserOperation): Promise<{txHash: Hex}> {
     const {entryPoint} = deployment();
 
     // Бандлеры принимают «распакованный» формат, а не PackedUserOperation.
     const userOpHash = await this.rpc<Hex>("eth_sendUserOperation", [unpack(userOp), entryPoint]);
-    const receipt = await this.waitForReceipt(userOpHash);
 
-    return {txHash: receipt.receipt.transactionHash};
+    // Отсюда и дальше операция уже принята ЭТИМ бандлером, поэтому ошибки ожидания чека
+    // не помечаются как `BundlerUnreachable`: перекладывать операцию на следующего
+    // незачем, её судьбу выяснит сверка платежа по `userOpHash`.
+    try {
+      const receipt = await this.waitForReceipt(userOpHash);
+      return {txHash: receipt.receipt.transactionHash};
+    } catch (error) {
+      throw error instanceof BundlerUnreachable ? new Error(error.message) : error;
+    }
   }
 
   private async waitForReceipt(
@@ -73,6 +93,7 @@ class RpcBundler implements Bundler {
       const receipt = await this.rpc<{receipt: {transactionHash: Hex}} | null>(
         "eth_getUserOperationReceipt",
         [userOpHash],
+        POLL_TIMEOUT_MS,
       );
       if (receipt) {
         return receipt;
@@ -82,18 +103,59 @@ class RpcBundler implements Bundler {
     throw new Error(`Бандлер не вернул receipt для операции ${userOpHash}.`);
   }
 
-  private async rpc<T>(method: string, params: unknown[]): Promise<T> {
-    const response = await fetch(this.url, {
-      method: "POST",
-      headers: {"content-type": "application/json"},
-      body: JSON.stringify({jsonrpc: "2.0", id: 1, method, params}),
-    });
+  private rpc<T>(method: string, params: unknown[], timeoutMs?: number): Promise<T> {
+    return bundlerRpc<T>(this.url, method, params, timeoutMs);
+  }
+}
 
-    const body = (await response.json()) as {result?: T; error?: {message: string}};
-    if (body.error) {
-      throw new Error(`Бандлер отклонил ${method}: ${body.error.message}`);
+/**
+ * Перебор бандлеров по списку.
+ *
+ * Бандлер — единственная внешняя зависимость на пути платежа, у которой нет запасного
+ * варианта в самом протоколе: пока он недоступен, агент не может потратить ничего.
+ *
+ * Повторная отправка одной и той же подписанной операции безопасна: в ней зафиксирован
+ * нонс кошелька, и EntryPoint исполнит её ровно один раз — второй включивший её бандлер
+ * получит откат на валидации. Поэтому «не достучались» можно нести дальше по списку,
+ * даже когда неясно, успел ли предыдущий её принять.
+ */
+class FallbackBundler implements Bundler {
+  readonly kind = "rpc";
+
+  constructor(private readonly bundlers: RpcBundler[]) {}
+
+  async send(userOp: PackedUserOperation): Promise<{txHash: Hex}> {
+    let lastError: unknown;
+
+    for (const [index, candidate] of this.bundlers.entries()) {
+      try {
+        const result = await candidate.send(userOp);
+        log.info("bundler.sent", {
+          bundler: candidate.label,
+          attempt: index + 1,
+          txHash: result.txHash,
+        });
+        return result;
+      } catch (error) {
+        if (!(error instanceof BundlerUnreachable)) {
+          throw error; // операцию рассмотрели и отвергли — следующему её нести незачем
+        }
+
+        lastError = error;
+        log.warn("bundler.failover", {
+          bundler: candidate.label,
+          attempt: index + 1,
+          remaining: this.bundlers.length - index - 1,
+          error: describeError(error),
+        });
+      }
     }
-    return body.result as T;
+
+    throw new AgentError(
+      `Ни один бандлер не ответил (${this.bundlers.length}). Последняя ошибка: ` +
+        describeError(lastError),
+      503,
+    );
   }
 }
 
@@ -113,8 +175,11 @@ function unpack(userOp: PackedUserOperation) {
 }
 
 export function bundler(): Bundler {
-  const url = serverEnv.bundlerUrl();
-  return url ? new RpcBundler(url) : new LocalHandleOpsBundler();
+  const urls = serverEnv.bundlerUrls();
+  if (urls.length === 0) {
+    return new LocalHandleOpsBundler();
+  }
+  return new FallbackBundler(urls.map((url) => new RpcBundler(url)));
 }
 
 /**

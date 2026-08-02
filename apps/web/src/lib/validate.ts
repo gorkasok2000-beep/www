@@ -9,9 +9,9 @@ import {CHAIN_ID} from "./env";
 /** Разбор входных данных API без внешних зависимостей — прототипу хватает. */
 
 /**
- * Локальная сеть (anvil): там signerUrl агента закономерно живёт на localhost,
- * и SSRF-фильтры бы мешали разработке. На любой другой сети приватные адреса
- * в signerUrl запрещены — см. `parseSignerUrl` и `assertSignerUrlResolvesPublic`.
+ * Локальная сеть (anvil): там и signerUrl агента, и приёмник вебхуков закономерно
+ * живут на localhost, и SSRF-фильтры бы мешали разработке. На любой другой сети
+ * приватные адреса запрещены — см. `parseCallbackUrl` и `assertResolvesPublic`.
  */
 const LOCAL_DEV = CHAIN_ID === 31337;
 
@@ -91,92 +91,105 @@ export function parseRules(value: unknown): RulesInput {
 }
 
 /**
- * Эндпоинт, у которого платформа спрашивает подпись.
+ * Адрес, по которому платформа сама ходит к агенту: эндпоинт подписи (`signerUrl`)
+ * или приёмник вебхуков (`url` подписки).
  *
- * Платформа сама ходит по этому адресу, поэтому без фильтров агент мог бы читать
- * внутреннюю сеть через наш сервер (SSRF). Что отсечено здесь, синхронно:
+ * Раз запрос уходит с нашего сервера, без фильтров агент мог бы читать через нас
+ * внутреннюю сеть (SSRF). Что отсечено здесь, синхронно:
  *
  *   - схемы кроме http/https — иначе сервер дёргал бы `file:` и прочие протоколы;
  *   - логин/пароль в URL;
  *   - localhost и приватные/служебные IP-литералы (на локальной сети — разрешены,
- *     там signerUrl агента закономерно живёт рядом).
+ *     там и подписант агента, и приёмник событий закономерно живут рядом).
  *
  * Для имён хостов дополнительно проверяется DNS-резолв при регистрации — см.
- * `assertSignerUrlResolvesPublic`; а сам запрос идёт с `redirect: "manual"`,
- * чтобы проверку нельзя было обойти ответом 302 (см. `chain/signer.ts`).
+ * `assertResolvesPublic`; а сами запросы идут с `redirect: "manual"`, чтобы
+ * проверку нельзя было обойти ответом 302 (см. `chain/signer.ts`, `webhooks.ts`).
+ *
+ * Проверка одна на оба применения намеренно: две копии разойдутся, и слабейшая
+ * станет дырой.
  */
-export function parseSignerUrl(value: unknown): string | undefined {
+export function parseCallbackUrl(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
   if (typeof value !== "string") {
-    throw new AgentError("Поле signerUrl должно быть строкой.", 400);
+    throw new AgentError(`Поле ${field} должно быть строкой.`, 400);
   }
 
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new AgentError("Поле signerUrl должно быть корректным URL.", 400);
+    throw new AgentError(`Поле ${field} должно быть корректным URL.`, 400);
   }
 
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new AgentError("signerUrl должен использовать http или https.", 400);
+    throw new AgentError(`${field} должен использовать http или https.`, 400);
   }
 
   if (url.username || url.password) {
-    throw new AgentError("signerUrl не должен содержать логин и пароль.", 400);
+    throw new AgentError(`${field} не должен содержать логин и пароль.`, 400);
   }
 
-  assertPublicHostname(url.hostname);
+  assertPublicHostname(url.hostname, field);
 
   return url.toString();
 }
 
+/** Эндпоинт подписи агента — частный случай `parseCallbackUrl`. */
+export function parseSignerUrl(value: unknown): string | undefined {
+  return parseCallbackUrl(value, "signerUrl");
+}
+
 /**
- * DNS-резолв signerUrl при регистрации: имя хоста не должно указывать на приватный
+ * DNS-резолв адреса при регистрации: имя хоста не должно указывать на приватный
  * адрес. Без этого фильтр по литералу обходится доменом, который резолвится в
  * 127.0.0.1. Полной гарантии не даёт (DNS-rebinding между проверкой и запросом),
  * поэтому запрос дополнительно идёт без следования редиректам.
  */
-export async function assertSignerUrlResolvesPublic(url: string): Promise<void> {
+export async function assertResolvesPublic(url: string, field: string): Promise<void> {
   if (LOCAL_DEV) {
     return;
   }
 
   const bare = bareHostname(new URL(url).hostname);
   if (isPrivateIp(bare) || bare.includes(":") || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(bare)) {
-    return; // IP-литерал: приватный уже отклонён в parseSignerUrl, публичному резолв не нужен
+    return; // IP-литерал: приватный уже отклонён в parseCallbackUrl, публичному резолв не нужен
   }
 
   let addresses: {address: string}[];
   try {
     addresses = await lookup(bare, {all: true, verbatim: true});
   } catch {
-    throw new AgentError(`Домен signerUrl не резолвится: ${bare}.`, 400);
+    throw new AgentError(`Домен ${field} не резолвится: ${bare}.`, 400);
   }
   for (const {address} of addresses) {
     if (isPrivateIp(address)) {
-      throw new AgentError(`signerUrl резолвится в приватный адрес ${address}.`, 400);
+      throw new AgentError(`${field} резолвится в приватный адрес ${address}.`, 400);
     }
   }
+}
+
+export async function assertSignerUrlResolvesPublic(url: string): Promise<void> {
+  return assertResolvesPublic(url, "signerUrl");
 }
 
 /**
  * Отсекает адреса, указывающие внутрь инфраструктуры. Вызывается и для литерала
  * из URL, и (через isPrivateIp) для каждого адреса из DNS-ответа.
  */
-function assertPublicHostname(hostname: string): void {
+function assertPublicHostname(hostname: string, field: string): void {
   if (LOCAL_DEV) {
     return;
   }
 
   const host = hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost")) {
-    throw new AgentError("signerUrl не может указывать на localhost.", 400);
+    throw new AgentError(`${field} не может указывать на localhost.`, 400);
   }
   if (isPrivateIp(bareHostname(host))) {
-    throw new AgentError("signerUrl не может указывать на приватный или служебный IP.", 400);
+    throw new AgentError(`${field} не может указывать на приватный или служебный IP.`, 400);
   }
 }
 

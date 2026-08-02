@@ -15,24 +15,43 @@
  *   5. режим REMOTE, включая отбраковку подписи чужого ключа;
  *   6. гонки: два параллельных платежа и два параллельных платежа по одному счёту;
  *   7. сверка: платёж с затёртым txHash восстанавливается по userOpHash;
- *   8. лимиты крана и валидация ввода.
+ *   8. лимиты крана и валидация ввода;
+ *   9. вебхуки: подпись, повтор с тем же идентификатором события, разбор очереди;
+ *  10. путь через настоящий JSON-RPC-бандлер, перебор эндпоинтов и отказ без перебора.
  *
  * Требуется поднятый стенд:
  *   anvil
  *   PRIVATE_KEY=… forge script script/Deploy.s.sol:Deploy --root contracts --broadcast
  *   pnpm --filter web build && pnpm --filter web start
  *
+ * Часть разделов зависит от конфигурации стенда и без неё честно пропускается:
+ *   CONFIRMATION_BLOCKS=2      — реорг и созревание платежа (раздел 10);
+ *   ALLOW_SERVER_KEY_MODE=false — закрытый прототипный режим (раздел 11);
+ *   BUNDLER_URL=http://127.0.0.1:1,http://127.0.0.1:4466 — бандлер (раздел 13).
+ *
  * Запуск:  node scripts/e2e.mjs
  */
+import {createHmac} from "node:crypto";
+import {readFileSync} from "node:fs";
 import {createServer} from "node:http";
+import {join} from "node:path";
+
 import {createPublicClient, createWalletClient, http, parseEther, formatEther} from "viem";
 import {generatePrivateKey, privateKeyToAccount} from "viem/accounts";
 import {foundry} from "viem/chains";
+
+import {loadEnvFile, repoRoot} from "./env-file.mjs";
+
+const env = {...loadEnvFile(), ...process.env};
 
 const BASE = process.env.SYNTH_API_URL ?? "http://127.0.0.1:3000";
 const API = `${BASE}/api/v1`;
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 const MERCHANT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const ADMIN_TOKEN = env.ADMIN_API_TOKEN;
+
+/** Порт заглушки бандлера — он же должен стоять вторым в BUNDLER_URL стенда. */
+const STUB_BUNDLER_PORT = 4466;
 
 const pub = createPublicClient({chain: foundry, transport: http(RPC)});
 
@@ -113,6 +132,32 @@ async function grantSessionKey(agent, budgetEth, extra = {}) {
   });
   return {issued: issued.body, confirmed: confirmed.body};
 }
+
+/**
+ * Заглушка бандлера поднимается на весь прогон, а не только на свой раздел.
+ *
+ * Стенд, поднятый со списком `BUNDLER_URL`, шлёт через бандлер КАЖДЫЙ платёж — значит,
+ * без работающей заглушки развалились бы все разделы разом. Заодно это и есть смысл
+ * такой конфигурации: весь сценарий целиком проходит по тому пути, который поедет в
+ * тестовую сеть, а не по локальному `handleOps` изнутри приложения.
+ */
+const BUNDLER_STAND = process.env.BUNDLER_URL?.includes(String(STUB_BUNDLER_PORT)) ?? false;
+const deployments = JSON.parse(
+  readFileSync(join(repoRoot, "contracts", "deployments", "31337.json"), "utf8"),
+);
+
+async function startBundler(mode = "accept") {
+  const {startStubBundler} = await import("./stub-bundler.mjs");
+  return startStubBundler({
+    port: STUB_BUNDLER_PORT,
+    entryPoint: deployments.entryPoint,
+    privateKey: env.RELAYER_PRIVATE_KEY,
+    rpcUrl: RPC,
+    mode,
+  });
+}
+
+const stubBundler = BUNDLER_STAND ? await startBundler() : null;
 
 // ---------------------------------------------------------------------------
 section("1. Регистрация: главный ключ остаётся снаружи");
@@ -450,6 +495,181 @@ if (process.env.ALLOW_SERVER_KEY_MODE === "false") {
   );
 } else {
   console.log("  ··   пропущено: запустите сервер с ALLOW_SERVER_KEY_MODE=false");
+}
+
+// ---------------------------------------------------------------------------
+section("12. Вебхуки: подпись, идемпотентность потребителя, повторы");
+// ---------------------------------------------------------------------------
+{
+  /**
+   * Приёмник событий. Ведёт журнал полученных запросов и умеет отвечать ошибкой —
+   * без этого не проверить ни повтор, ни то, что повтор несёт тот же идентификатор.
+   */
+  const received = [];
+  let receiverStatus = 200;
+  const receiver = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk) => (raw += chunk));
+    request.on("end", () => {
+      received.push({headers: request.headers, body: raw});
+      response.writeHead(receiverStatus, {"content-type": "application/json"});
+      response.end("{}");
+    });
+  });
+  await new Promise((resolve) => receiver.listen(4477, "127.0.0.1", resolve));
+
+  const listener = await newAgent(`hook-${suffix}`);
+  const subscribed = await call("/agents/me/webhooks", {
+    method: "POST",
+    apiKey: listener.apiKey,
+    body: {url: "http://127.0.0.1:4477/events", events: ["payment.confirmed"]},
+  });
+  ok(subscribed.status === 201, "подписка создана", `${subscribed.status}`);
+  ok(Boolean(subscribed.body.secret), "секрет выдан один раз", subscribed.body.secret?.slice(0, 12));
+
+  const listed = await call("/agents/me/webhooks", {apiKey: listener.apiKey});
+  ok(
+    listed.body.webhooks?.[0] && listed.body.webhooks[0].secret === undefined,
+    "в списке секрета уже нет",
+  );
+
+  // ping доходит даже до подписки на одно конкретное событие: иначе «проверить эндпоинт»
+  // молча ничего бы не делало.
+  const ping = await call(`/agents/me/webhooks/${subscribed.body.id}/test`, {
+    method: "POST",
+    apiKey: listener.apiKey,
+  });
+  ok(ping.body.status === "delivered", "ping доставлен", ping.body.status);
+
+  const pinged = received.at(-1);
+  const signature = pinged?.headers["x-synth-signature"] ?? "";
+  const [tPart, vPart] = signature.split(",");
+  const expected = createHmac("sha256", subscribed.body.secret)
+    .update(`${tPart?.slice(2)}.${pinged?.body}`)
+    .digest("hex");
+  ok(vPart === `v1=${expected}`, "подпись сходится с телом и меткой времени");
+  ok(pinged?.headers["x-synth-event"] === "ping", "заголовок X-Synth-Event", pinged?.headers["x-synth-event"]);
+  ok(Boolean(pinged?.headers["x-synth-event-id"]), "заголовок X-Synth-Event-Id");
+
+  // Событие платежа. При ненулевой глубине платёж закрывается не сразу, поэтому цепь
+  // подращивается и состояние перечитывается — тем же способом, что и в разделе 10.
+  await call("/agents/me/deposit", {method: "POST", apiKey: listener.apiKey, body: {valueEth: "2"}});
+  await grantSessionKey(listener, "0.5");
+  const hookPayment = await call("/agents/me/transactions", {
+    method: "POST",
+    apiKey: listener.apiKey,
+    key: `hook-pay-${suffix}`,
+    body: {to: MERCHANT, valueEth: "0.01"},
+  });
+  if (DEPTH > 0) {
+    for (let i = 0; i < DEPTH + 1; i++) await rpc("evm_mine");
+    await call(`/agents/me/payments/${hookPayment.body.id}`, {apiKey: listener.apiKey});
+  }
+
+  const confirmedEvent = received
+    .map((entry) => JSON.parse(entry.body))
+    .find((payload) => payload.event === "payment.confirmed");
+  ok(Boolean(confirmedEvent), "пришло payment.confirmed");
+  ok(
+    confirmedEvent?.data?.payment?.id === hookPayment.body.id,
+    "событие про тот самый платёж",
+    confirmedEvent?.data?.payment?.id,
+  );
+
+  // Отказ приёмника: доставка не теряется, а планируется на повтор с тем же eventId —
+  // ровно тем, по которому потребитель обязан отсеять дубль.
+  receiverStatus = 503;
+  const retried = await call(`/agents/me/webhooks/${subscribed.body.id}/test`, {
+    method: "POST",
+    apiKey: listener.apiKey,
+  });
+  ok(retried.body.status === "pending", "неудачная доставка осталась в очереди", retried.body.status);
+  ok(retried.body.attempts === 1, "попытка учтена", String(retried.body.attempts));
+
+  receiverStatus = 200;
+  const beforeFlush = received.length;
+  // Первая пауза перед повтором — секунда: ждём её, иначе flush ничего не подхватит.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  const flushed = await call("/admin/webhooks/flush", {method: "POST", apiKey: ADMIN_TOKEN});
+  ok(flushed.body.delivered >= 1, "flush добрал отложенную доставку", JSON.stringify(flushed.body));
+
+  const redelivered = received.slice(beforeFlush);
+  ok(
+    redelivered.some((entry) => entry.headers["x-synth-event-id"] === retried.body.eventId),
+    "повтор несёт тот же X-Synth-Event-Id",
+  );
+
+  const unsubscribed = await call(`/agents/me/webhooks/${subscribed.body.id}`, {
+    method: "DELETE",
+    apiKey: listener.apiKey,
+  });
+  ok(unsubscribed.status === 200, "отписка", `${unsubscribed.status}`);
+
+  // Чужую подписку удалить нельзя, и по ответу не видно, существует ли она.
+  const stranger = await newAgent(`hook-x-${suffix}`);
+  const foreign = await call(`/agents/me/webhooks/${subscribed.body.id}`, {
+    method: "DELETE",
+    apiKey: stranger.apiKey,
+  });
+  ok(foreign.status === 404, "чужая подписка недоступна", `${foreign.status}`);
+
+  await new Promise((resolve) => receiver.close(resolve));
+}
+
+// ---------------------------------------------------------------------------
+section("13. Настоящий бандлер: перебор эндпоинтов и отказ без перебора");
+// ---------------------------------------------------------------------------
+// Единственная конфигурация, в которой исполняется `RpcBundler`: обычный прогон идёт
+// через локальный `handleOps` изнутри приложения. Требует стенда, поднятого со списком
+// бандлеров, где ПЕРВЫЙ адрес заведомо мёртв:
+//   BUNDLER_URL=http://127.0.0.1:1,http://127.0.0.1:4466 pnpm --filter web start
+if (!stubBundler) {
+  console.log(
+    `  ··   пропущено: поднимите сервер с BUNDLER_URL=http://127.0.0.1:1,http://127.0.0.1:${STUB_BUNDLER_PORT}`,
+  );
+} else {
+  // Всё, что оплачено выше, оплачено через заглушку — значит перебор сработал на каждом
+  // платеже: первый эндпоинт в списке не слушает никто.
+  ok(
+    stubBundler.calls.includes("eth_sendUserOperation"),
+    "операции ушли по JSON-RPC мимо мёртвого первого эндпоинта",
+    `вызовов: ${stubBundler.calls.length}`,
+  );
+  ok(
+    stubBundler.calls.includes("eth_estimateUserOperationGas"),
+    "газ оценивал бандлер, а не локальная эвристика",
+  );
+
+  await stubBundler.close();
+
+  // Та же заглушка, но отвечающая JSON-RPC-ошибкой: операцию рассмотрели и отвергли.
+  // Такой отказ не должен превращаться в перебор — иначе агент вместо внятной причины
+  // получал бы «ни один бандлер не ответил» через несколько таймаутов.
+  const rejecting = await startBundler("reject");
+
+  const payer = await newAgent(`bundler-${suffix}`);
+  await call("/agents/me/deposit", {method: "POST", apiKey: payer.apiKey, body: {valueEth: "2"}});
+  await grantSessionKey(payer, "0.5");
+
+  const merchantBeforeReject = await balanceOf(MERCHANT);
+  const refused = await call("/agents/me/transactions", {
+    method: "POST",
+    apiKey: payer.apiKey,
+    key: `bundler-reject-${suffix}`,
+    body: {to: MERCHANT, valueEth: "0.01"},
+  });
+  ok(refused.status === 502, "отказ бандлера — 502, а не 500", `${refused.status}`);
+  ok(
+    (await balanceOf(MERCHANT)) === merchantBeforeReject,
+    "денег отвергнутая операция не двинула",
+  );
+  ok(
+    /отклонил/.test(refused.body.error ?? "") && !/Ни один бандлер/.test(refused.body.error ?? ""),
+    "причина — отказ бандлера, а не исчерпанный перебор",
+    refused.body.error,
+  );
+
+  await rejecting.close();
 }
 
 console.log(failures ? `\n${failures} проверок провалено` : "\nвсе проверки пройдены");

@@ -34,8 +34,9 @@ const REQUIRED = [
 const OPTIONAL = [
   ["NEXT_PUBLIC_CHAIN_ID", "31337", "сеть приложения"],
   ["RPC_URL", "http://127.0.0.1:8545", "нода"],
-  ["BUNDLER_URL", "(нет — операции идут прямо в EntryPoint)", "внешний бандлер"],
+  ["BUNDLER_URL", "(нет — операции идут прямо в EntryPoint)", "бандлеры через запятую"],
   ["FAUCET_ENABLED", "true", "тестовый кран и выдача газа"],
+  ["CONFIRMATION_BLOCKS", "(0 локально, 2 в остальных сетях)", "глубина подтверждения платежа"],
 ];
 
 const fromFile = loadEnvFile();

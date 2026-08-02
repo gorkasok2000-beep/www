@@ -55,6 +55,7 @@ model Agent {
   transactions    TransactionLog[]
   sessionKeys     SessionKey[]
   payments        Payment[]
+  webhooks        Webhook[]
   issuedInvoices  Invoice[]       @relation("IssuedInvoices")
   faucetGrants    FaucetGrant[]
 }
@@ -221,4 +222,60 @@ model FaucetGrant {
   createdAt DateTime @default(now())
 
   @@index([agentId, createdAt])
+}
+
+/// Подписка агента на события: платформа сама сообщает об исходе, а не ждёт опроса.
+///
+/// Без этого единственный способ узнать судьбу платежа — крутить `GET /payments/:id`.
+/// С ненулевой глубиной подтверждений платёж закрывается не в ответе на `POST`, а
+/// спустя несколько блоков, и выставивший счёт вообще не узнал бы об оплате.
+model Webhook {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  url String
+
+  /// Секрет для HMAC-подписи, AES-256-GCM на APP_ENCRYPTION_KEY. Показывается один раз
+  /// при создании: без него потребитель не сможет отличить наш запрос от чужого.
+  secretCiphertext String
+
+  /// JSON-массив имён событий; пустой — присылать все.
+  events String @default("[]")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([agentId, active])
+}
+
+/// Одна попытка доставки. Доставка гарантируется «не менее одного раза», поэтому
+/// потребитель обязан быть идемпотентным — для этого у события есть `eventId`.
+model WebhookDelivery {
+  id String @id @default(cuid())
+
+  webhookId String
+  webhook   Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  /// Идентификатор события. Уникален и передаётся в заголовке X-Synth-Event-Id:
+  /// повторная доставка того же события несёт тот же идентификатор.
+  eventId String @unique
+
+  event   String
+  payload String
+
+  /// PENDING — ждёт отправки или повтора. DELIVERED — принято (2xx).
+  /// FAILED — попытки исчерпаны.
+  status String @default("PENDING")
+
+  attempts      Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime  @default(now())
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, nextAttemptAt])
 }

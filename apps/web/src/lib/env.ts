@@ -19,8 +19,22 @@ function required(name: string): string {
 export const serverEnv = {
   rpcUrl: () => process.env.RPC_URL ?? "http://127.0.0.1:8545",
 
-  /** URL внешнего бандлера. Если пусто — операции идут напрямую в EntryPoint. */
-  bundlerUrl: () => process.env.BUNDLER_URL || undefined,
+  /**
+   * Бандлеры, через которые уходят операции. Если пусто — операции идут напрямую в
+   * EntryPoint (локальный стенд, где бандлера нет).
+   *
+   * Список через запятую: `BUNDLER_URL=https://main,https://backup`. Бандлер — внешний
+   * сервис, и его недоступность иначе означает, что платить нельзя вообще; порядок в
+   * списке задаёт приоритет, перебор — в `FallbackBundler`.
+   */
+  bundlerUrls: (): string[] =>
+    (process.env.BUNDLER_URL ?? "")
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean),
+
+  /** Первый бандлер из списка — там, где перебор не нужен (оценка газа). */
+  bundlerUrl: () => serverEnv.bundlerUrls()[0],
 
   /** EOA, который отправляет `handleOps` в локальной сети (роль бандлера). */
   relayerPrivateKey: () => required("RELAYER_PRIVATE_KEY"),

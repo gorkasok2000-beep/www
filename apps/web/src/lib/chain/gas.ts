@@ -1,9 +1,12 @@
 import {numberToHex, type Address, type Hex} from "viem";
 
+import {AgentError} from "@/lib/agent-error";
 import {serverEnv} from "@/lib/env";
+import {describeError, log} from "@/lib/log";
 
 import {publicClient} from "./clients";
 import {deployment} from "./config";
+import {BundlerUnreachable, bundlerRpc} from "./jsonrpc";
 
 /**
  * Оценка газа для UserOperation.
@@ -77,11 +80,32 @@ export type EstimateInput = {
 };
 
 export async function estimateUserOperationGas(params: EstimateInput): Promise<GasEstimate> {
-  const bundlerUrl = serverEnv.bundlerUrl();
-  if (bundlerUrl) {
-    return estimateViaBundler(bundlerUrl, params);
+  const urls = serverEnv.bundlerUrls();
+  if (urls.length === 0) {
+    return estimateLocally(params);
   }
-  return estimateLocally(params);
+
+  // Тот же перебор и то же различение, что и при отправке (см. `chain/jsonrpc.ts`):
+  // недоступный бандлер уступает место следующему, а отказ по существу — окончателен.
+  // Откатываться на локальную оценку нельзя: если бандлеры настроены, значит сеть
+  // настоящая, а локальная оценка не знает ни их наценки, ни стоимости calldata в L1.
+  let lastError: unknown;
+  for (const url of urls) {
+    try {
+      return await estimateViaBundler(url, params);
+    } catch (error) {
+      if (!(error instanceof BundlerUnreachable)) {
+        throw error;
+      }
+      lastError = error;
+      log.warn("bundler.failover", {method: "eth_estimateUserOperationGas", error: describeError(error)});
+    }
+  }
+
+  throw new AgentError(
+    `Ни один бандлер не оценил операцию. Последняя ошибка: ${describeError(lastError)}`,
+    503,
+  );
 }
 
 /**
@@ -94,42 +118,30 @@ const DUMMY_SIGNATURE: Hex = `0x${"01".repeat(64)}1c`;
 async function estimateViaBundler(url: string, params: EstimateInput): Promise<GasEstimate> {
   const {entryPoint} = deployment();
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_estimateUserOperationGas",
-      params: [
-        {
-          sender: params.sender,
-          nonce: numberToHex(params.nonce),
-          callData: params.callData,
-          maxFeePerGas: numberToHex(params.maxFeePerGas),
-          maxPriorityFeePerGas: numberToHex(params.maxPriorityFeePerGas),
-          signature: DUMMY_SIGNATURE,
-        },
-        entryPoint,
-      ],
-    }),
-  });
+  const result = await bundlerRpc<{
+    callGasLimit: Hex;
+    verificationGasLimit: Hex;
+    preVerificationGas: Hex;
+  } | null>(url, "eth_estimateUserOperationGas", [
+    {
+      sender: params.sender,
+      nonce: numberToHex(params.nonce),
+      callData: params.callData,
+      maxFeePerGas: numberToHex(params.maxFeePerGas),
+      maxPriorityFeePerGas: numberToHex(params.maxPriorityFeePerGas),
+      signature: DUMMY_SIGNATURE,
+    },
+    entryPoint,
+  ]);
 
-  const body = (await response.json()) as {
-    result?: {callGasLimit: Hex; verificationGasLimit: Hex; preVerificationGas: Hex};
-    error?: {message: string};
-  };
-
-  if (body.error || !body.result) {
-    throw new Error(
-      `Бандлер отклонил eth_estimateUserOperationGas: ${body.error?.message ?? "пустой ответ"}`,
-    );
+  if (!result) {
+    throw new Error("Бандлер вернул пустой ответ на eth_estimateUserOperationGas.");
   }
 
   return {
-    callGasLimit: BigInt(body.result.callGasLimit),
-    verificationGasLimit: BigInt(body.result.verificationGasLimit),
-    preVerificationGas: BigInt(body.result.preVerificationGas),
+    callGasLimit: BigInt(result.callGasLimit),
+    verificationGasLimit: BigInt(result.verificationGasLimit),
+    preVerificationGas: BigInt(result.preVerificationGas),
   };
 }
 

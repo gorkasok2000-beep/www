@@ -21,6 +21,7 @@ import {describeError, log} from "./log";
 import {publicClient} from "./chain/clients";
 import {db} from "./db";
 import {assertSessionKeyAllows} from "./session-keys";
+import {deliverDue, emit} from "./webhooks";
 
 /**
  * Платежи агента.
@@ -377,14 +378,56 @@ async function finalize(
   // Счёт трогаем, только если он всё ещё захвачен этим платежом (PAYING): успех
   // закрывает его, подтверждённый сетью отказ возвращает в OPEN для новой попытки.
   // Незрелый успех счёт не отпускает — он всё ещё оплачивается.
+  let invoicePaid = false;
   if (payment.invoiceId && (confirmed || !result.success)) {
-    await db.invoice.updateMany({
+    const closed = await db.invoice.updateMany({
       where: {id: payment.invoiceId, status: "PAYING"},
       data: result.success ? {status: "PAID", paidAt: new Date()} : {status: "OPEN"},
     });
+    invoicePaid = result.success && closed.count > 0;
+  }
+
+  // Событие шлём только на окончательном переходе: платёж, ждущий глубины, ещё не
+  // завершён, и «подтверждён» о нём говорить рано.
+  if (payment.status === "CONFIRMED" || payment.status === "FAILED") {
+    await emit(
+      {id: payment.agentId},
+      payment.status === "CONFIRMED" ? "payment.confirmed" : "payment.failed",
+      {payment: paymentView(payment)},
+    );
+  }
+
+  if (invoicePaid) {
+    await notifyInvoicePaid(payment);
   }
 
   return payment;
+}
+
+/**
+ * Сообщает об оплате тому, кто счёт выставил.
+ *
+ * Именно ради этого случая вебхуки и нужны: плательщик и так узнаёт исход из ответа на
+ * свой запрос, а получатель без уведомления не узнал бы ничего, пока сам не спросит.
+ */
+async function notifyInvoicePaid(payment: Payment): Promise<void> {
+  const invoice = await db.invoice.findUnique({where: {id: payment.invoiceId!}});
+  if (!invoice?.issuerAgentId) {
+    return; // счёт выставлен не агентом платформы — уведомлять некого
+  }
+
+  await emit({id: invoice.issuerAgentId}, "invoice.paid", {
+    invoice: {
+      id: invoice.id,
+      to: invoice.to,
+      valueWei: invoice.valueWei,
+      valueEth: formatEther(BigInt(invoice.valueWei)),
+      memo: invoice.memo,
+      status: invoice.status.toLowerCase(),
+      paidAt: invoice.paidAt?.toISOString() ?? null,
+    },
+    payment: paymentView(payment),
+  });
 }
 
 /** Ушёл ли блок на глубину, с которой реорг его уже не вытеснит. */
@@ -415,7 +458,7 @@ async function markReorged(payment: Payment): Promise<Payment> {
     blockNumber: payment.blockNumber ?? undefined,
   });
 
-  return db.payment.update({
+  const reverted = await db.payment.update({
     where: {id: payment.id},
     data: {
       status: "SUBMITTED",
@@ -425,6 +468,12 @@ async function markReorged(payment: Payment): Promise<Payment> {
         "Блок с операцией вытеснен из цепи (реорг). Платёж снова ждёт подтверждения.",
     },
   });
+
+  // Отдельное событие, а не молчание: агент уже получил `payment.confirmed` по этому
+  // платежу и, не узнав о реорге, продолжил бы считать его оплаченным.
+  await emit({id: reverted.agentId}, "payment.reorged", {payment: paymentView(reverted)});
+
+  return reverted;
 }
 
 /**
@@ -523,6 +572,16 @@ async function locate(payment: Payment): Promise<({txHash: Hex} & UserOperationO
 
 export async function listPayments(agent: Agent, limit = 50): Promise<Payment[]> {
   await reconcilePayments(agent);
+
+  // Своего воркера в прототипе нет, поэтому повторы доставки подбираются там же, где уже
+  // идёт фоновая работа. Best-effort: чужой недоступный эндпоинт не должен ломать чтение
+  // списка платежей. См. ограничение в шапке webhooks.ts.
+  try {
+    await deliverDue();
+  } catch (error) {
+    log.warn("webhook.flush_failed", {agentId: agent.id, error: describeError(error)});
+  }
+
   return db.payment.findMany({
     where: {agentId: agent.id},
     orderBy: {createdAt: "desc"},
