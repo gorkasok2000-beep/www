@@ -27,7 +27,9 @@
  * Часть разделов зависит от конфигурации стенда и без неё честно пропускается:
  *   CONFIRMATION_BLOCKS=2      — реорг и созревание платежа (раздел 10);
  *   ALLOW_SERVER_KEY_MODE=false — закрытый прототипный режим (раздел 11);
- *   BUNDLER_URL=http://127.0.0.1:1,http://127.0.0.1:4466 — бандлер (раздел 13).
+ *   BUNDLER_URL=http://127.0.0.1:1,http://127.0.0.1:4466 — бандлер (раздел 13);
+ *   RATE_LIMIT_E2E=1           — лимиты запросов и lockout (раздел 14, идёт ПОСЛЕДНИМ:
+ *                                lockout блокирует IP стенда до конца прогона).
  *
  * Запуск:  node scripts/e2e.mjs
  */
@@ -684,6 +686,68 @@ if (!stubBundler) {
   );
 
   await rejecting.close();
+}
+
+// ---------------------------------------------------------------------------
+section("14. Лимиты запросов и блокировка за перебор ключей");
+// ---------------------------------------------------------------------------
+// Раздел идёт ПОСЛЕДНИМ и включается только флагом RATE_LIMIT_E2E=1: проверка
+// lockout блокирует IP стенда на AUTH_LOCKOUT_DURATION_MIN, и всё, что шло бы
+// после, получало бы 429. Стенд для этого раздела поднимается с маленькими
+// лимитами, чтобы не стрелять сотнями регистраций:
+//   RATE_LIMIT_REGISTER_PER_HOUR=3 AUTH_LOCKOUT_THRESHOLD=3 AUTH_LOCKOUT_DURATION_MIN=1 \
+//     pnpm --filter web start
+//   RATE_LIMIT_E2E=1 RATE_LIMIT_REGISTER_PER_HOUR=3 AUTH_LOCKOUT_THRESHOLD=3 pnpm e2e
+if (process.env.RATE_LIMIT_E2E !== "1") {
+  console.log("  ··   пропущено: запустите с RATE_LIMIT_E2E=1 (сервер — с маленькими лимитами)");
+} else {
+  // (а) N+1 регистраций с одного IP: последняя отклоняется с 429 и Retry-After.
+  const registerLimit = Number(process.env.RATE_LIMIT_REGISTER_PER_HOUR ?? "10");
+  let registerTripped = null;
+  for (let i = 0; i <= registerLimit && !registerTripped; i++) {
+    const response = await fetch(`${API}/agents`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        handle: `rl-${uid()}`,
+        mode: "AUTONOMOUS_ENTITY",
+        owner: privateKeyToAccount(generatePrivateKey()).address,
+      }),
+    });
+    if (response.status === 429) {
+      registerTripped = {
+        retryAfter: response.headers.get("retry-after"),
+        body: await response.json().catch(() => ({})),
+      };
+    }
+  }
+  ok(registerTripped !== null, "лимит регистраций с одного IP срабатывает");
+  ok(
+    registerTripped !== null && Number(registerTripped.retryAfter) > 0,
+    "в 429 есть заголовок Retry-After",
+    registerTripped?.retryAfter,
+  );
+  ok(
+    Boolean(registerTripped?.body.requestId),
+    "в 429 тот же формат ошибки, что у остальных (error + requestId)",
+  );
+
+  // (б) threshold неверных ключей подряд → IP заблокирован, и даже запрос с ВЕРНЫМ
+  // ключом отклоняется до конца блока.
+  const lockoutThreshold = Number(process.env.AUTH_LOCKOUT_THRESHOLD ?? "10");
+  let sawUnauthorized = true;
+  for (let i = 0; i < lockoutThreshold; i++) {
+    const attempt = await call("/agents/me", {apiKey: `sk_agent_wrong_${uid()}`});
+    if (attempt.status !== 401 && attempt.status !== 429) sawUnauthorized = false;
+  }
+  ok(sawUnauthorized, "неверные ключи получили 401 и были учтены");
+
+  const locked = await call("/agents/me", {apiKey: agent.apiKey});
+  ok(
+    locked.status === 429,
+    "после threshold неудач даже верный ключ получает 429 до конца блока",
+    `${locked.status}: ${locked.body.error ?? ""}`,
+  );
 }
 
 console.log(failures ? `\n${failures} проверок провалено` : "\nвсе проверки пройдены");

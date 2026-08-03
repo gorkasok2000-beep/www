@@ -37,6 +37,13 @@ const OPTIONAL = [
   ["BUNDLER_URL", "(нет — операции идут прямо в EntryPoint)", "бандлеры через запятую"],
   ["FAUCET_ENABLED", "true", "тестовый кран и выдача газа"],
   ["CONFIRMATION_BLOCKS", "(0 локально, 2 в остальных сетях)", "глубина подтверждения платежа"],
+  ["RATE_LIMIT_ENABLED", "true", "лимиты запросов и блокировка за перебор ключей"],
+  ["RATE_LIMIT_API_PER_MIN", "300", "общий лимит запросов в минуту на идентичность"],
+  ["RATE_LIMIT_REGISTER_PER_HOUR", "10", "лимит регистраций в час с одного IP"],
+  ["RATE_LIMIT_ADMIN_PER_MIN", "30", "лимит запросов к admin-эндпоинтам в минуту"],
+  ["AUTH_LOCKOUT_THRESHOLD", "10", "неудач аутентификации до блокировки IP"],
+  ["AUTH_LOCKOUT_WINDOW_MIN", "10", "окно подсчёта неудач, минут"],
+  ["AUTH_LOCKOUT_DURATION_MIN", "15", "длительность блокировки, минут"],
 ];
 
 const fromFile = loadEnvFile();
@@ -70,5 +77,5 @@ if (problems.length > 0) {
 
 console.log("Окружение в порядке.");
 for (const [name, fallback, what] of OPTIONAL) {
-  console.log(`  ${name.padEnd(22)} ${read(name) ?? fallback}   — ${what}`);
+  console.log(`  ${name.padEnd(30)} ${read(name) ?? fallback}   — ${what}`);
 }

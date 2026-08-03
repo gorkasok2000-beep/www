@@ -65,6 +65,11 @@ jobs:
       - name: Типы
         run: pnpm --filter web exec tsc --noEmit
 
+      # Юнит-тесты лимитера (node:test через tsx, без стенда). Проверки самих лимитов
+      # по живому API — отдельный стенд: RATE_LIMIT_E2E=1 pnpm e2e, см. scripts/e2e.mjs.
+      - name: Юнит-тесты
+        run: pnpm --filter web test
+
       - name: Сборка
         run: pnpm --filter web build
 

@@ -1,0 +1,14 @@
+# Еженедельные обновления зависимостей от Dependabot: npm-пакеты монорепозитория
+# (корень, pnpm) и действия GitHub Actions. PR собирает CI, так что сломанное
+# обновление видно до влития, а не после.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
